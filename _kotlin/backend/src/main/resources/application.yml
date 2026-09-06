@@ -3,6 +3,16 @@ spring:
     name: onyx-foss-kotlin-backend
   jackson:
     property-naming-strategy: SNAKE_CASE
+  ai:
+    vectorstore:
+      opensearch:
+        uris:
+          - ${OPENSEARCH_URL:${onyx.opensearch.base-url:http://opensearch:9200}}
+        index-name: ${OPENSEARCH_INDEX:${onyx.opensearch.index:onyx-kotlin-chunks}}
+        username: ${OPENSEARCH_ADMIN_USERNAME:${onyx.opensearch.username:}}
+        password: ${OPENSEARCH_ADMIN_PASSWORD:${onyx.opensearch.password:}}
+        ssl:
+          verify-certs: ${OPENSEARCH_VERIFY_CERTS:${onyx.opensearch.verify-certs:false}}
   datasource:
     url: ${POSTGRES_URL:jdbc:postgresql://postgres:5432/onyx}
     username: ${POSTGRES_USER:onyx}

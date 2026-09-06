@@ -347,6 +347,7 @@ class OpenSearchIndexerIntegrationTest {
                 "cc_pair_id" to mapOf("type" to "long"),
                 "source_document_id" to mapOf("type" to "keyword"),
                 "chunk_id" to mapOf("type" to "integer"),
+                "source_type" to mapOf("type" to "keyword"),
                 "external_user_emails" to mapOf("type" to "keyword"),
                 "external_user_group_ids" to mapOf("type" to "keyword"),
                 "is_public" to mapOf("type" to "boolean"),

@@ -122,7 +122,7 @@ class OpenSearchIndexerTest {
             server.enqueue(jsonResponse(exactMappingResponse()))
             server.enqueue(
                 jsonResponse(
-                    """{"hits":{"hits":[
+                    """{"took":1,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"hits":[
                         {"_id":"a","_score":1.0,"_source":{"source_document_id":"doc-1","chunk_id":1,"title":"T","content":"above","link":null,"metadata":{}}},
                         {"_id":"b","_score":1.0,"_source":{"source_document_id":"doc-1","chunk_id":2,"title":"T","content":"center","link":null,"metadata":{}}},
                         {"_id":"c","_score":1.0,"_source":{"source_document_id":"doc-1","chunk_id":3,"title":"T","content":"below","link":null,"metadata":{}}}
@@ -150,7 +150,7 @@ class OpenSearchIndexerTest {
             assertThat(request.path("size").asInt()).isEqualTo(3)
             val filters = request.path("query").path("bool").path("filter").toList()
             assertThat(filters.map { it.path("term").path("source_document_id") }.filter { !it.isMissingNode }
-                .single().asText()).isEqualTo("doc-1")
+                .single().termString()).isEqualTo("doc-1")
             val range = filters.map { it.path("range").path("chunk_id") }.filter { !it.isMissingNode }.single()
             assertThat(range.path("gte").asInt()).isEqualTo(1)
             assertThat(range.path("lte").asInt()).isEqualTo(3)
@@ -162,8 +162,8 @@ class OpenSearchIndexerTest {
     fun `new index stores embeddings as 768 dimensional knn vectors`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(404))
-            server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(acknowledgedResponse())
+            server.enqueue(indexSuccessResponse())
             server.start()
             val indexer = OpenSearchIndexer(
                 OnyxProperties(
@@ -348,7 +348,7 @@ class OpenSearchIndexerTest {
             val requestUrl = request.requestUrl ?: server.url(request.path ?: "")
             assertThat(requestUrl.encodedPath).isEqualTo("/documents/_update_by_query")
             assertThat(requestUrl.queryParameter("refresh")).isEqualTo("true")
-            assertThat(requestUrl.queryParameter("conflicts")).isEqualTo("proceed")
+            assertThat(requestUrl.queryParameter("conflicts") ?: body.path("conflicts").asText()).isEqualTo("proceed")
             assertThat(body.path("query").path("bool").path("filter").first().path("term").path("cc_pair_id").termValue())
                 .isEqualTo(7)
             assertThat(body.path("query").path("bool").path("filter").path(1).path("terms").path("source_document_id").toList().map{ it.asText() })
