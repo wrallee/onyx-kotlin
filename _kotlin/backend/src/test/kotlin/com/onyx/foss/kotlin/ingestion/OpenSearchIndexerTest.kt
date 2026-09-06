@@ -1,5 +1,6 @@
 package com.onyx.foss.kotlin.ingestion
 
+import tools.jackson.databind.JsonNode
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.config.OnyxProperties
 import com.onyx.foss.kotlin.domain.ConnectorSource
@@ -65,9 +66,10 @@ class OpenSearchIndexerTest {
             assertThat(keyword.path("query").path("bool").path("filter").first().path("terms")
                 .path("document_sets").toList().map{ it.asText() })
                 .containsExactly("Engineering", "Operations")
-            assertThat(vector.path("query").path("knn").path("embedding").path("filter").first()
-                .path("terms").path("document_sets").toList().map{ it.asText() })
-                .containsExactly("Engineering", "Operations")
+            val vectorFilter = vector.path("query").path("knn").path("embedding").path("filter")
+            val docSets = (if (vectorFilter.has("bool")) vectorFilter.path("bool").path("filter").first() else vectorFilter.first())
+                .path("terms").path("document_sets").toList().map { it.asText() }
+            assertThat(docSets).containsExactly("Engineering", "Operations")
             assertThat(results.keyword.single().id).isEqualTo("keyword")
             assertThat(results.vector.single().id).isEqualTo("vector")
         }
@@ -183,7 +185,8 @@ class OpenSearchIndexerTest {
             val body = mapper.readTree(create.body.readUtf8())
             val embedding = body.path("mappings").path("properties").path("embedding")
             assertThat(create.path).isEqualTo("/documents")
-            assertThat(body.path("settings").path("index").path("knn").asBoolean()).isTrue()
+            val knnSetting = body.path("settings").let { if (it.has("index")) it.path("index").path("knn") else it.path("knn") }
+            assertThat(knnSetting.asBoolean()).isTrue()
             assertThat(embedding.path("type").asText()).isEqualTo("knn_vector")
             assertThat(embedding.path("dimension").asInt()).isEqualTo(768)
             assertThat(embedding.path("method").path("engine").asText()).isEqualTo("lucene")
@@ -195,7 +198,7 @@ class OpenSearchIndexerTest {
     fun `upsert stores the connector source type on each chunk`() {
         MockWebServer().use { server ->
             enqueueKeywordMapping(server)
-            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(indexSuccessResponse())
             server.start()
             val indexer = OpenSearchIndexer(
                 OnyxProperties(
@@ -307,8 +310,10 @@ class OpenSearchIndexerTest {
 
             val request = takeOperationRequest(server)
             val body = mapper.readTree(request.body.readUtf8())
-            assertThat(request.path).isEqualTo("/documents/_delete_by_query?refresh=true")
-            assertThat(body.path("query").path("bool").path("filter").first().path("term").path("cc_pair_id").asLong())
+            val requestUrl = request.requestUrl ?: server.url(request.path ?: "")
+            assertThat(requestUrl.encodedPath).isEqualTo("/documents/_delete_by_query")
+            assertThat(requestUrl.queryParameter("refresh")).isEqualTo("true")
+            assertThat(body.path("query").path("bool").path("filter").first().path("term").path("cc_pair_id").termValue())
                 .isEqualTo(7)
             assertThat(body.path("query").path("bool").path("filter").path(1).path("terms").path("source_document_id").toList().map{ it.asText() })
                 .containsExactlyInAnyOrder("one", "two")
@@ -340,8 +345,11 @@ class OpenSearchIndexerTest {
 
             val request = takeOperationRequest(server)
             val body = mapper.readTree(request.body.readUtf8())
-            assertThat(request.path).isEqualTo("/documents/_update_by_query?refresh=true&conflicts=proceed")
-            assertThat(body.path("query").path("bool").path("filter").first().path("term").path("cc_pair_id").asLong())
+            val requestUrl = request.requestUrl ?: server.url(request.path ?: "")
+            assertThat(requestUrl.encodedPath).isEqualTo("/documents/_update_by_query")
+            assertThat(requestUrl.queryParameter("refresh")).isEqualTo("true")
+            assertThat(requestUrl.queryParameter("conflicts")).isEqualTo("proceed")
+            assertThat(body.path("query").path("bool").path("filter").first().path("term").path("cc_pair_id").termValue())
                 .isEqualTo(7)
             assertThat(body.path("query").path("bool").path("filter").path(1).path("terms").path("source_document_id").toList().map{ it.asText() })
                 .containsExactlyInAnyOrder("one", "two")
@@ -359,7 +367,7 @@ class OpenSearchIndexerTest {
     fun newChunksStartWithExplicitPrivateAccess() {
         MockWebServer().use { server ->
             enqueueKeywordMapping(server)
-            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(indexSuccessResponse())
             server.start()
             val indexer = OpenSearchIndexer(
                 OnyxProperties(
@@ -393,8 +401,8 @@ class OpenSearchIndexerTest {
                 MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
                     .setBody("""{"documents":{"mappings":{"properties":{"source_document_id":{"type":"keyword"}}}}}"""),
             )
-            server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(acknowledgedResponse())
+            server.enqueue(indexSuccessResponse())
             server.start()
             val indexer = OpenSearchIndexer(
                 OnyxProperties(
@@ -481,8 +489,32 @@ class OpenSearchIndexerTest {
         }
     }
 
-    private fun searchResponse(id: String, score: Double): String =
-        """{"hits":{"hits":[{"_id":"$id","_score":$score,"_source":{"source_document_id":"doc-$id","chunk_id":0,"title":"Title","content":"Content","link":"https://example.test/$id","metadata":{"type":"guide"}}}]}}"""
+    private fun searchResponse(id: String, score: Double): String = mapper.writeValueAsString(
+        mapOf(
+            "took" to 1,
+            "timed_out" to false,
+            "_shards" to mapOf("total" to 1, "successful" to 1, "skipped" to 0, "failed" to 0),
+            "hits" to mapOf(
+                "total" to mapOf("value" to 1, "relation" to "eq"),
+                "max_score" to score,
+                "hits" to listOf(
+                    mapOf(
+                        "_index" to "documents",
+                        "_id" to id,
+                        "_score" to score,
+                        "_source" to mapOf(
+                            "source_document_id" to "doc-$id",
+                            "chunk_id" to 0,
+                            "title" to "Title",
+                            "content" to "Content",
+                            "link" to "https://example.test/$id",
+                            "metadata" to mapOf("type" to "guide"),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
 
     private fun migrationDispatcher(aliasAppliedDespiteResponse: Boolean): Dispatcher {
         val logicalMappingReads = AtomicInteger()
@@ -500,20 +532,20 @@ class OpenSearchIndexerTest {
                         jsonResponse(if (exact) exactMappingResponse() else legacyMappingResponse())
                     }
                     method == "PUT" && path == "/documents/_block/write" ->
-                        jsonResponse("""{"acknowledged":true,"shards_acknowledged":true}""")
+                        jsonResponse("""{"acknowledged":true,"shards_acknowledged":true,"indices":[]}""")
                     method == "PUT" && path.startsWith("/documents-exact-") -> {
                         replacementExists.set(true)
-                        jsonResponse("""{"acknowledged":true}""")
+                        jsonResponse("""{"acknowledged":true,"shards_acknowledged":true,"indices":[]}""")
                     }
                     method == "GET" && path.startsWith("/documents-exact-") && path.endsWith("/_mapping") ->
                         jsonResponse(exactMappingResponse())
-                    method == "GET" && path.endsWith("/_count") -> jsonResponse("""{"count":1}""")
+                    method == "GET" && path.endsWith("/_count") -> jsonResponse("""{"count":1,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}""")
                     method == "POST" && path.startsWith("/_reindex") -> jsonResponse(
-                        """{"timed_out":false,"total":1,"created":1,"updated":0,"version_conflicts":0,"failures":[]}""",
+                        """{"took":1,"timed_out":false,"total":1,"created":1,"updated":0,"version_conflicts":0,"failures":[]}""",
                     )
                     method == "POST" && path == "/_aliases" -> jsonResponse("""{"acknowledged":false}""")
                     method == "POST" && path.startsWith("/documents/_delete_by_query") -> jsonResponse(
-                        """{"timed_out":false,"total":0,"deleted":0,"version_conflicts":0,"failures":[]}""",
+                        """{"took":1,"timed_out":false,"total":0,"deleted":0,"batches":0,"version_conflicts":0,"failures":[]}""",
                     )
                     else -> MockResponse().setResponseCode(500).setBody("Unexpected $method $path")
                 }
@@ -556,6 +588,14 @@ class OpenSearchIndexerTest {
         .setHeader("Content-Type", "application/json")
         .setBody(body)
 
+    private fun indexSuccessResponse(id: String = "doc-1"): MockResponse = jsonResponse(
+        """{"_index":"documents","_id":"$id","_version":1,"result":"created","_shards":{"total":1,"successful":1,"failed":0},"_seq_no":0,"_primary_term":1}""",
+    )
+
+    private fun acknowledgedResponse(): MockResponse = jsonResponse(
+        """{"acknowledged":true,"shards_acknowledged":true,"indices":[],"index":"documents"}""",
+    )
+
     private fun recordedRequests(server: MockWebServer): List<String> = buildList {
         while (true) {
             val request = server.takeRequest(200, TimeUnit.MILLISECONDS) ?: break
@@ -569,7 +609,7 @@ class OpenSearchIndexerTest {
             MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
                 .setBody("""{"documents":{"mappings":{"properties":{"source_document_id":{"type":"keyword"}}}}}"""),
         )
-        server.enqueue(MockResponse().setResponseCode(200))
+        server.enqueue(acknowledgedResponse())
     }
 
     private fun takeOperationRequest(server: MockWebServer) = server.run {
@@ -578,4 +618,7 @@ class OpenSearchIndexerTest {
         takeRequest()
         takeRequest()
     }
+
+    private fun JsonNode.termValue(): Long = if (this.isObject) this.path("value").asLong() else this.asLong()
+    private fun JsonNode.termString(): String = if (this.isObject) this.path("value").asText() else this.asText()
 }

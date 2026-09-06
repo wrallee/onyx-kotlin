@@ -1,6 +1,12 @@
 For Superpowers workflows, save implementation plans under
 `docs/superpowers/plans/`, not `plans/`.
 
+# Communication Protocol
+- **Direct Answer First**: Whenever the user asks a question, gives feedback, or makes an inquiry, ALWAYS answer the user's question directly in the text response FIRST before executing any tools, running background commands, or making code edits.
+- **Never Run Tools Instead of Answering**: Stop and respond immediately when a question is asked. Never proceed with background work or tool invocations while ignoring or delaying answers to the user's inquiry.
+- **Fact-Based Explanation**: Answer with precise facts and root causes, avoiding speculation.
+
+
 # Container Workload Safety
 
 Do not start the complete Compose stack without checking available resources and required services.
