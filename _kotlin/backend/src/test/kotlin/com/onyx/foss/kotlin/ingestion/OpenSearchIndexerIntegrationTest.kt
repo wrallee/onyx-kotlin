@@ -3,7 +3,7 @@ package com.onyx.foss.kotlin.ingestion
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.SerializationFeature
 import tools.jackson.module.kotlin.jacksonObjectMapper
-import com.onyx.foss.kotlin.config.OnyxProperties
+import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
 import io.netty.handler.ssl.SslContextBuilder
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory
 import okhttp3.mockwebserver.Dispatcher
@@ -285,16 +285,14 @@ class OpenSearchIndexerIntegrationTest {
     }
 
     private fun indexer(url: String = baseUrl): OpenSearchIndexer = OpenSearchIndexer(
-        OnyxProperties(
-            opensearch = OnyxProperties.OpenSearch(
-                baseUrl = url,
-                index = index,
-                username = ADMIN_USERNAME,
-                password = ADMIN_PASSWORD,
-                verifyCerts = false,
-            ),
+        OpenSearchVectorStoreProperties(
+            uris = listOf(url),
+            indexName = index,
+            username = ADMIN_USERNAME,
+            password = ADMIN_PASSWORD,
+            ssl = OpenSearchVectorStoreProperties.Ssl(verifyCerts = false),
         ),
-        WebClient.builder(),
+        null,
         mapper,
         externalWrites,
     )

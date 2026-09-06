@@ -38,42 +38,28 @@ class OpenSearchIndexer(
     private val modelServerDimension: Int = 768,
 ) {
     constructor(
-        onyxProperties: OnyxProperties,
+        properties: OpenSearchVectorStoreProperties,
         clientBuilder: Any?,
         mapper: ObjectMapper,
         externalWrites: PairExternalWriteFence,
+        modelServerDimension: Int = 768,
     ) : this(
-        OpenSearchVectorStoreProperties(
-            uris = listOf(onyxProperties.opensearch.baseUrl),
-            indexName = onyxProperties.opensearch.index,
-            username = onyxProperties.opensearch.username,
-            password = onyxProperties.opensearch.password,
-            ssl = OpenSearchVectorStoreProperties.Ssl(verifyCerts = onyxProperties.opensearch.verifyCerts),
-        ),
-        OpenSearchClientFactory.createClient(
-            OpenSearchVectorStoreProperties(
-                uris = listOf(onyxProperties.opensearch.baseUrl),
-                indexName = onyxProperties.opensearch.index,
-                username = onyxProperties.opensearch.username,
-                password = onyxProperties.opensearch.password,
-                ssl = OpenSearchVectorStoreProperties.Ssl(verifyCerts = onyxProperties.opensearch.verifyCerts),
-            ),
-            mapper,
-        ),
+        properties,
+        OpenSearchClientFactory.createClient(properties, mapper),
         mapper,
         externalWrites,
-        onyxProperties.modelServer.embeddingDimension,
+        modelServerDimension,
     )
 
     @Autowired
     constructor(
-        effectiveOpenSearchVectorStoreProperties: OpenSearchVectorStoreProperties,
+        properties: OpenSearchVectorStoreProperties,
         openSearchClient: OpenSearchClient,
         objectMapper: ObjectMapper,
         externalWrites: PairExternalWriteFence,
         onyxProperties: OnyxProperties,
     ) : this(
-        effectiveOpenSearchVectorStoreProperties,
+        properties,
         openSearchClient,
         objectMapper,
         externalWrites,

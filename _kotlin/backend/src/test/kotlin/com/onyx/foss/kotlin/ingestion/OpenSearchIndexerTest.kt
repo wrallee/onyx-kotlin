@@ -2,7 +2,7 @@ package com.onyx.foss.kotlin.ingestion
 
 import tools.jackson.databind.JsonNode
 import tools.jackson.module.kotlin.jacksonObjectMapper
-import com.onyx.foss.kotlin.config.OnyxProperties
+import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import io.netty.handler.ssl.SslContextBuilder
 import io.netty.handler.ssl.util.SelfSignedCertificate
@@ -25,6 +25,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 class OpenSearchIndexerTest {
+
+    private fun testProperties(server: MockWebServer): OpenSearchVectorStoreProperties {
+        return OpenSearchVectorStoreProperties(
+            uris = listOf(server.url("/").toString().trimEnd('/')),
+            indexName = "documents",
+        )
+    }
     private val mapper = jacksonObjectMapper()
     private val externalWrites = mock(PairExternalWriteFence::class.java).also { fence ->
         doAnswer { invocation -> invocation.getArgument<() -> Unit>(1).invoke() }
@@ -39,17 +46,7 @@ class OpenSearchIndexerTest {
             server.enqueue(jsonResponse(searchResponse("keyword", 2.0)))
             server.enqueue(jsonResponse(searchResponse("vector", 1.5)))
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             val results = indexer.searchCandidates(
                 query = "deployment guide",
@@ -83,17 +80,7 @@ class OpenSearchIndexerTest {
             server.enqueue(jsonResponse(searchResponse("keyword", 2.0)))
             server.enqueue(jsonResponse(searchResponse("vector", 1.5)))
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             indexer.searchCandidates(
                 query = "deployment guide",
@@ -130,17 +117,7 @@ class OpenSearchIndexerTest {
                 ),
             )
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             val chunks = indexer.chunksInRange("doc-1", minChunkId = 1, maxChunkId = 3)
 
@@ -165,18 +142,7 @@ class OpenSearchIndexerTest {
             server.enqueue(acknowledgedResponse())
             server.enqueue(indexSuccessResponse())
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    modelServer = OnyxProperties.ModelServer(embeddingDimension = 768),
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites, 768)
 
             indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1))
 
@@ -200,17 +166,7 @@ class OpenSearchIndexerTest {
             enqueueKeywordMapping(server)
             server.enqueue(indexSuccessResponse())
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             indexer.upsert(
                 7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1),
@@ -233,17 +189,7 @@ class OpenSearchIndexerTest {
             )
             server.enqueue(MockResponse().setResponseCode(200))
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             val error = org.junit.jupiter.api.assertThrows<IllegalStateException> {
                 indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1))
@@ -275,14 +221,12 @@ class OpenSearchIndexerTest {
             }
             .bindNow()
         try {
-            val properties = OnyxProperties(
-                opensearch = OnyxProperties.OpenSearch(
-                    baseUrl = "https://localhost:${server.port()}",
-                    verifyCerts = false,
-                ),
+            val properties = OpenSearchVectorStoreProperties(
+                uris = listOf("https://localhost:${server.port()}"),
+                ssl = OpenSearchVectorStoreProperties.Ssl(verifyCerts = false),
             )
 
-            OpenSearchIndexer(properties, WebClient.builder(), mapper, externalWrites).deletePair(1)
+            OpenSearchIndexer(properties, null, mapper, externalWrites).deletePair(1)
         } finally {
             server.disposeNow()
             certificate.delete()
@@ -298,13 +242,11 @@ class OpenSearchIndexerTest {
                     .setBody("""{"timed_out":false,"total":2,"deleted":2,"version_conflicts":0,"failures":[]}"""),
             )
             server.start()
-            val properties = OnyxProperties(
-                opensearch = OnyxProperties.OpenSearch(
-                    baseUrl = server.url("/").toString().trimEnd('/'),
-                    index = "documents",
-                ),
+            val properties = OpenSearchVectorStoreProperties(
+                uris = listOf(server.url("/").toString().trimEnd('/')),
+                indexName = "documents",
             )
-            val indexer = OpenSearchIndexer(properties, WebClient.builder(), mapper, externalWrites)
+            val indexer = OpenSearchIndexer(properties, null, mapper, externalWrites)
 
             indexer.deleteDocuments(7, setOf("one", "two"))
 
@@ -329,17 +271,7 @@ class OpenSearchIndexerTest {
                     .setBody("""{"timed_out":false,"total":2,"updated":0,"noops":2,"version_conflicts":0,"failures":[]}"""),
             )
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             indexer.updateDocumentSets(7, setOf("one", "two"), listOf("first", "second"))
 
@@ -369,17 +301,7 @@ class OpenSearchIndexerTest {
             enqueueKeywordMapping(server)
             server.enqueue(indexSuccessResponse())
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1))
 
@@ -404,17 +326,7 @@ class OpenSearchIndexerTest {
             server.enqueue(acknowledgedResponse())
             server.enqueue(indexSuccessResponse())
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             indexer.upsert(
                 7,
@@ -444,17 +356,7 @@ class OpenSearchIndexerTest {
         MockWebServer().use { server ->
             server.dispatcher = migrationDispatcher(aliasAppliedDespiteResponse = false)
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             org.junit.jupiter.api.assertThrows<IllegalStateException> {
                 indexer.deleteDocuments(7, setOf("one"))
@@ -471,17 +373,7 @@ class OpenSearchIndexerTest {
         MockWebServer().use { server ->
             server.dispatcher = migrationDispatcher(aliasAppliedDespiteResponse = true)
             server.start()
-            val indexer = OpenSearchIndexer(
-                OnyxProperties(
-                    opensearch = OnyxProperties.OpenSearch(
-                        baseUrl = server.url("/").toString().trimEnd('/'),
-                        index = "documents",
-                    ),
-                ),
-                WebClient.builder(),
-                mapper,
-                externalWrites,
-            )
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             indexer.deleteDocuments(7, setOf("one"))
 
