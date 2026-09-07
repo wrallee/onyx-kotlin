@@ -1,7 +1,9 @@
 package com.onyx.foss.kotlin.ingestion
 
 import com.onyx.foss.kotlin.config.OnyxProperties
+import com.onyx.foss.kotlin.config.SearchProperties
 import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.opensearch.HybridNormalizationPipelineRegistry
 import com.onyx.foss.kotlin.opensearch.OpenSearchChunkDocument
 import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory
 import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
@@ -36,6 +38,8 @@ class OpenSearchIndexer(
     private val mapper: ObjectMapper,
     private val externalWrites: PairExternalWriteFence,
     private val modelServerDimension: Int = 768,
+    private val searchProperties: SearchProperties = SearchProperties(),
+    private val pipelineRegistry: HybridNormalizationPipelineRegistry? = null,
 ) {
     constructor(
         properties: OpenSearchVectorStoreProperties,
@@ -43,12 +47,16 @@ class OpenSearchIndexer(
         mapper: ObjectMapper,
         externalWrites: PairExternalWriteFence,
         modelServerDimension: Int = 768,
+        searchProperties: SearchProperties = SearchProperties(),
+        pipelineRegistry: HybridNormalizationPipelineRegistry? = null,
     ) : this(
         properties,
         OpenSearchClientFactory.createClient(properties, mapper),
         mapper,
         externalWrites,
         modelServerDimension,
+        searchProperties,
+        pipelineRegistry,
     )
 
     @Autowired
@@ -58,108 +66,170 @@ class OpenSearchIndexer(
         objectMapper: ObjectMapper,
         externalWrites: PairExternalWriteFence,
         onyxProperties: OnyxProperties,
+        searchProperties: SearchProperties,
+        pipelineRegistry: HybridNormalizationPipelineRegistry,
     ) : this(
         properties,
         openSearchClient,
         objectMapper,
         externalWrites,
         onyxProperties.modelServer.embeddingDimension,
+        searchProperties,
+        pipelineRegistry,
     )
 
     private val indexReady = AtomicBoolean(false)
 
-    fun searchCandidates(
+    fun keywordSearch(
         query: String,
-        queryEmbedding: List<Double>,
         documentSets: List<String>,
         count: Int,
         sourceTypes: List<String> = emptyList(),
         updatedAfter: Instant? = null,
-    ): SearchCandidateResults {
+    ): List<SearchCandidate> {
         require(query.isNotBlank()) { "query must not be blank" }
-        require(queryEmbedding.size == modelServerDimension) {
-            "query embedding dimension must be $modelServerDimension"
-        }
         require(count > 0) { "count must be positive" }
         ensureIndex()
 
-        val filterQueries = mutableListOf<Query>()
-        val distinctSets = documentSets.distinct()
-        if (distinctSets.isNotEmpty()) {
-            filterQueries.add(Query.of { q ->
-                q.terms { t ->
-                    t.field("document_sets")
-                        .terms { ts -> ts.value(distinctSets.map { FieldValue.of(it) }) }
-                }
-            })
-        }
-        val distinctSources = sourceTypes.distinct()
-        if (distinctSources.isNotEmpty()) {
-            filterQueries.add(Query.of { q ->
-                q.terms { t ->
-                    t.field("source_type")
-                        .terms { ts -> ts.value(distinctSources.map { FieldValue.of(it) }) }
-                }
-            })
-        }
-        if (updatedAfter != null) {
-            filterQueries.add(Query.of { q ->
-                q.range { r ->
-                    r.field("doc_updated_at").gte(JsonData.of(updatedAfter.toString()))
-                }
-            })
-        }
-
-        val keywordSearchRequest = OpenSearchSearchRequest.Builder()
+        val filter = searchFilter(documentSets, sourceTypes, updatedAfter)
+        val request = OpenSearchSearchRequest.Builder()
             .index(properties.indexName)
             .size(count)
             .query(Query.of { q ->
                 q.bool { b ->
                     b.must { m ->
-                        m.multiMatch { mm ->
-                            mm.query(query).fields(listOf("title^2", "content"))
-                        }
+                        m.multiMatch { mm -> mm.query(query).fields(listOf("title^2", "content")) }
                     }
-                    if (filterQueries.isNotEmpty()) {
-                        b.filter(filterQueries)
+                    if (filter != null) {
+                        b.filter(listOf(filter))
                     }
                     b
                 }
             })
             .build()
 
-        val keywordResponse = client.search(keywordSearchRequest, OpenSearchChunkDocument::class.java)
-        val keywordCandidates = keywordResponse.hits().hits().mapNotNull { hit ->
+        return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
             val source = hit.source() ?: return@mapNotNull null
             source.toSearchCandidate(hit.id() ?: "", hit.score() ?: 0.0, mapper)
         }
+    }
 
-        val floatVector = queryEmbedding.map { it.toFloat() }
-        val knnQueryBuilder = KnnQuery.Builder()
-            .field(EMBEDDING_FIELD)
-            .vector(floatVector)
-            .k(count)
-
-        if (filterQueries.isNotEmpty()) {
-            knnQueryBuilder.filter(Query.of { q -> q.bool { b -> b.filter(filterQueries) } })
+    fun vectorSearch(
+        queryEmbedding: List<Double>,
+        documentSets: List<String>,
+        count: Int,
+        sourceTypes: List<String> = emptyList(),
+        updatedAfter: Instant? = null,
+    ): List<SearchCandidate> {
+        require(queryEmbedding.size == modelServerDimension) {
+            "query embedding dimension must be $modelServerDimension"
         }
+        require(count > 0) { "count must be positive" }
+        ensureIndex()
 
-        val vectorSearchRequest = OpenSearchSearchRequest.Builder()
+        val knn = KnnQuery.Builder()
+            .field(EMBEDDING_FIELD)
+            .vector(queryEmbedding.map { it.toFloat() })
+            .k(count)
+        searchFilter(documentSets, sourceTypes, updatedAfter)?.let { knn.filter(it) }
+
+        val request = OpenSearchSearchRequest.Builder()
             .index(properties.indexName)
             .size(count)
-            .query(Query.of { q -> q.knn(knnQueryBuilder.build()) })
+            .query(Query.of { q -> q.knn(knn.build()) })
             .build()
 
-        val vectorResponse = client.search(vectorSearchRequest, OpenSearchChunkDocument::class.java)
-        val vectorCandidates = vectorResponse.hits().hits().mapNotNull { hit ->
+        return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
             val source = hit.source() ?: return@mapNotNull null
             source.toSearchCandidate(hit.id() ?: "", hit.score() ?: 0.0, mapper)
         }
+    }
 
-        return SearchCandidateResults(
-            keyword = keywordCandidates,
-            vector = vectorCandidates,
-        )
+    fun hybridSearch(
+        query: String,
+        queryEmbedding: List<Double>,
+        documentSets: List<String>,
+        limit: Int,
+        sourceTypes: List<String> = emptyList(),
+        updatedAfter: Instant? = null,
+    ): List<SearchCandidate> {
+        require(query.isNotBlank()) { "query must not be blank" }
+        require(queryEmbedding.size == modelServerDimension) {
+            "query embedding dimension must be $modelServerDimension"
+        }
+        require(limit > 0) { "limit must be positive" }
+        ensureIndex()
+
+        val registry = checkNotNull(pipelineRegistry) {
+            "Hybrid normalization pipeline registry is not configured"
+        }
+        registry.ensureReady()
+
+        val keywordQuery = Query.of { q ->
+            q.multiMatch { mm -> mm.query(query).fields(listOf("title^2", "content")) }
+        }
+        val vectorQuery = Query.of { q ->
+            q.knn { knn ->
+                knn.field(EMBEDDING_FIELD)
+                    .vector(queryEmbedding.map { it.toFloat() })
+                    .k(searchProperties.hybridCandidates)
+            }
+        }
+        val filter = searchFilter(documentSets, sourceTypes, updatedAfter)
+        val hybridQuery = Query.of { q ->
+            q.hybrid { hybrid ->
+                hybrid.queries(listOf(keywordQuery, vectorQuery))
+                    .paginationDepth(searchProperties.hybridCandidates)
+                if (filter != null) {
+                    hybrid.filter(filter)
+                }
+                hybrid
+            }
+        }
+        val request = OpenSearchSearchRequest.Builder()
+            .index(properties.indexName)
+            .size(limit)
+            .searchPipeline(registry.selectedPipelineId())
+            .query(hybridQuery)
+            .build()
+
+        return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
+            val source = hit.source() ?: return@mapNotNull null
+            source.toSearchCandidate(hit.id() ?: "", hit.score() ?: 0.0, mapper)
+        }
+    }
+
+    private fun searchFilter(
+        documentSets: List<String>,
+        sourceTypes: List<String>,
+        updatedAfter: Instant?,
+    ): Query? {
+        val clauses = mutableListOf<Query>()
+        documentSets.distinct().takeIf { it.isNotEmpty() }?.let { sets ->
+            clauses += Query.of { q ->
+                q.terms { terms ->
+                    terms.field("document_sets")
+                        .terms { values -> values.value(sets.map { FieldValue.of(it) }) }
+                }
+            }
+        }
+        sourceTypes.distinct().takeIf { it.isNotEmpty() }?.let { sources ->
+            clauses += Query.of { q ->
+                q.terms { terms ->
+                    terms.field("source_type")
+                        .terms { values -> values.value(sources.map { FieldValue.of(it) }) }
+                }
+            }
+        }
+        if (updatedAfter != null) {
+            clauses += Query.of { q ->
+                q.range { range ->
+                    range.field("doc_updated_at").gte(JsonData.of(updatedAfter.toString()))
+                }
+            }
+        }
+        return clauses.takeIf { it.isNotEmpty() }
+            ?.let { Query.of { q -> q.bool { b -> b.filter(it) } } }
     }
 
     fun chunksInRange(sourceDocumentId: String, minChunkId: Int, maxChunkId: Int): List<SearchCandidate> {

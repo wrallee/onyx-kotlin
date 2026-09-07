@@ -2,7 +2,13 @@ package com.onyx.foss.kotlin.ingestion
 
 import tools.jackson.databind.JsonNode
 import tools.jackson.module.kotlin.jacksonObjectMapper
+import com.onyx.foss.kotlin.config.SearchProperties
+import com.onyx.foss.kotlin.opensearch.HybridNormalizationPipelineRegistry
+import com.onyx.foss.kotlin.opensearch.MinMaxNormalizationPipeline
+import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory
 import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
+import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
+import org.opensearch.client.opensearch.OpenSearchClient
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import io.netty.handler.ssl.SslContextBuilder
 import io.netty.handler.ssl.util.SelfSignedCertificate
@@ -39,7 +45,7 @@ class OpenSearchIndexerTest {
     }
 
     @Test
-    fun `candidate search applies document set union to keyword and vector queries`() {
+    fun `keyword and vector search apply the same document set filter`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
             server.enqueue(jsonResponse(exactMappingResponse()))
@@ -48,8 +54,12 @@ class OpenSearchIndexerTest {
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
-            val results = indexer.searchCandidates(
+            val keywordResults = indexer.keywordSearch(
                 query = "deployment guide",
+                documentSets = listOf("Engineering", "Operations"),
+                count = 30,
+            )
+            val vectorResults = indexer.vectorSearch(
                 queryEmbedding = List(768) { 0.1 },
                 documentSets = listOf("Engineering", "Operations"),
                 count = 30,
@@ -60,31 +70,30 @@ class OpenSearchIndexerTest {
             val keyword = mapper.readTree(server.takeRequest().body.readUtf8())
             val vector = mapper.readTree(server.takeRequest().body.readUtf8())
             assertThat(keyword.path("size").asInt()).isEqualTo(30)
-            assertThat(keyword.path("query").path("bool").path("filter").first().path("terms")
-                .path("document_sets").toList().map{ it.asText() })
+            assertThat(keyword.path("query").path("bool").path("filter").first()
+                .path("bool").path("filter").first().path("terms").path("document_sets")
+                .toList().map { it.asText() })
                 .containsExactly("Engineering", "Operations")
             val vectorFilter = vector.path("query").path("knn").path("embedding").path("filter")
-            val docSets = (if (vectorFilter.has("bool")) vectorFilter.path("bool").path("filter").first() else vectorFilter.first())
-                .path("terms").path("document_sets").toList().map { it.asText() }
-            assertThat(docSets).containsExactly("Engineering", "Operations")
-            assertThat(results.keyword.single().id).isEqualTo("keyword")
-            assertThat(results.vector.single().id).isEqualTo("vector")
+                .path("bool").path("filter").first().path("terms").path("document_sets")
+                .toList().map { it.asText() }
+            assertThat(vectorFilter).containsExactly("Engineering", "Operations")
+            assertThat(keywordResults.single().id).isEqualTo("keyword")
+            assertThat(vectorResults.single().id).isEqualTo("vector")
         }
     }
 
     @Test
-    fun `candidate search applies source type and updated-after filters`() {
+    fun `keyword search applies source type and updated-after filters`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
             server.enqueue(jsonResponse(exactMappingResponse()))
             server.enqueue(jsonResponse(searchResponse("keyword", 2.0)))
-            server.enqueue(jsonResponse(searchResponse("vector", 1.5)))
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
-            indexer.searchCandidates(
+            indexer.keywordSearch(
                 query = "deployment guide",
-                queryEmbedding = List(768) { 0.1 },
                 documentSets = emptyList(),
                 count = 30,
                 sourceTypes = listOf("jira", "github"),
@@ -94,11 +103,69 @@ class OpenSearchIndexerTest {
             server.takeRequest()
             server.takeRequest()
             val keyword = mapper.readTree(server.takeRequest().body.readUtf8())
-            val filters = keyword.path("query").path("bool").path("filter").toList()
+            val filters = keyword.path("query").path("bool").path("filter").first()
+                .path("bool").path("filter").toList()
             assertThat(filters.map { it.path("terms").path("source_type") }.filter { !it.isMissingNode }
                 .single().toList().map { it.asText() }).containsExactly("jira", "github")
             assertThat(filters.map { it.path("range").path("doc_updated_at").path("gte") }
                 .filter { !it.isMissingNode }.single().asText()).isEqualTo("2026-01-01T00:00:00Z")
+        }
+    }
+
+    @Test
+    fun `hybrid search uses configured candidate depth and returns requested size`() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(jsonResponse("""{"acknowledged":true}"""))
+            server.enqueue(jsonResponse("{}"))
+            server.enqueue(jsonResponse(searchResponse("hybrid", 1.8)))
+            server.start()
+
+            val properties = testProperties(server)
+            val searchProperties = SearchProperties(hybridCandidates = 200)
+            OpenSearchClientFactory.createTransport(properties, mapper).use { transport ->
+                val client = OpenSearchClient(transport)
+                val registry = HybridNormalizationPipelineRegistry(
+                    MinMaxNormalizationPipeline(client, properties, searchProperties),
+                    ZScoreNormalizationPipeline(client, properties, searchProperties, mapper),
+                    searchProperties,
+                )
+                val indexer = OpenSearchIndexer(
+                    properties,
+                    client,
+                    mapper,
+                    externalWrites,
+                    768,
+                    searchProperties,
+                    registry,
+                )
+
+                val results = indexer.hybridSearch(
+                    query = "deployment guide",
+                    queryEmbedding = List(768) { 0.1 },
+                    documentSets = listOf("Engineering"),
+                    limit = 7,
+                )
+
+                server.takeRequest()
+                server.takeRequest()
+                server.takeRequest()
+                server.takeRequest()
+                val searchRequest = server.takeRequest()
+                val body = mapper.readTree(searchRequest.body.readUtf8())
+                assertThat(searchRequest.requestUrl?.queryParameter("search_pipeline"))
+                    .isEqualTo("documents-hybrid-min-max")
+                assertThat(body.path("size").asInt()).isEqualTo(7)
+                val hybrid = body.path("query").path("hybrid")
+                assertThat(hybrid.path("pagination_depth").asInt()).isEqualTo(200)
+                assertThat(hybrid.path("queries").get(1).path("knn").path("embedding").path("k").asInt())
+                    .isEqualTo(200)
+                assertThat(hybrid.path("filter").path("bool").path("filter").first()
+                    .path("terms").path("document_sets").toList().map { it.asText() })
+                    .containsExactly("Engineering")
+                assertThat(results.single().id).isEqualTo("hybrid")
+            }
         }
     }
 

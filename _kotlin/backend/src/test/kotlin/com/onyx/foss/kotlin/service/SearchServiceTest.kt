@@ -1,13 +1,11 @@
 package com.onyx.foss.kotlin.service
 
-import tools.jackson.module.kotlin.jacksonObjectMapper
-import com.onyx.foss.kotlin.config.OnyxProperties
+import com.onyx.foss.kotlin.config.SearchProperties
 import com.onyx.foss.kotlin.domain.DocumentSetEntity
 import com.onyx.foss.kotlin.domain.DocumentSetRepository
 import com.onyx.foss.kotlin.ingestion.ModelServerClient
 import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
 import com.onyx.foss.kotlin.ingestion.SearchCandidate
-import com.onyx.foss.kotlin.ingestion.SearchCandidateResults
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -15,132 +13,69 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
+import tools.jackson.module.kotlin.jacksonObjectMapper
+import java.time.Instant
 
 class SearchServiceTest {
     private val modelServer = mock(ModelServerClient::class.java)
     private val indexer = mock(OpenSearchIndexer::class.java)
     private val documentSets = mock(DocumentSetRepository::class.java)
-    private val properties = OnyxProperties(
-        modelServer = OnyxProperties.ModelServer(
-            embeddingDimension = 3,
-            searchCandidates = 50,
-        ),
-    )
-    private val service = SearchService(properties, modelServer, indexer, documentSets)
+    private val searchProperties = SearchProperties(hybridCandidates = 200, rrfK = 50)
+    private val service = SearchService(searchProperties, modelServer, indexer, documentSets)
 
     @Test
-    fun `fuses retrieval and returns top candidates up to limit`() {
-        val keyword = (0 until 25).map { candidate("keyword-$it") }
-        val vector = (15 until 40).map { candidate("keyword-$it") }
-        `when`(documentSets.findAllByNameIn(listOf("Engineering", "Operations"))).thenReturn(
-            listOf(DocumentSetEntity(name = "Engineering"), DocumentSetEntity(name = "Operations")),
-        )
-        `when`(modelServer.embedQuery("deployment guide")).thenReturn(listOf(0.1, 0.2, 0.3))
+    fun `keyword search never calls embedding and forwards filters`() {
+        val cutoff = Instant.parse("2026-01-01T00:00:00Z")
+        `when`(documentSets.findAllByNameIn(listOf("Engineering")))
+            .thenReturn(listOf(DocumentSetEntity(name = "Engineering")))
         `when`(
-            indexer.searchCandidates(
-                "deployment guide",
-                listOf(0.1, 0.2, 0.3),
-                listOf("Engineering", "Operations"),
-                50,
-            ),
-        ).thenReturn(SearchCandidateResults(keyword, vector))
-
-        val response = service.search("deployment guide", listOf("Engineering", "Operations"), 10)
-
-        assertThat(response.results).hasSize(10)
-        assertThat(response.results.first().sourceDocumentId).isNotEmpty()
-    }
-
-    @Test
-    fun `fuses retrieval with min-max normalization and weighted score merge`() {
-        val candidateA = candidate("doc-a", score = 10.0)
-        val candidateB = candidate("doc-b", score = 0.0)
-        val candidateC = candidate("doc-c", score = 5.0)
-
-        val keyword = listOf(candidateA, candidateC, candidateB) // scores: 10, 5, 0 -> norm: 1.0, 0.5, 0.0
-        val vectorA = candidate("doc-a", score = 20.0)
-        val vectorB = candidate("doc-b", score = 10.0)
-        val vector = listOf(vectorA, vectorB) // scores: 20, 10 -> norm: 1.0, 0.0 (doc-c has 0.0)
-
-        // Expected final scores:
-        // doc-a: 0.5 * 1.0 + 0.5 * 1.0 = 1.0
-        // doc-c: 0.5 * 0.5 + 0.5 * 0.0 = 0.25
-        // doc-b: 0.5 * 0.0 + 0.5 * 0.0 = 0.0
-
-        `when`(documentSets.findAllByNameIn(emptyList())).thenReturn(emptyList())
-        `when`(modelServer.embedQuery("test query")).thenReturn(listOf(0.1, 0.2, 0.3))
-        `when`(
-            indexer.searchCandidates("test query", listOf(0.1, 0.2, 0.3), emptyList(), 50),
-        ).thenReturn(SearchCandidateResults(keyword, vector))
-
-        val response = service.search("test query", emptyList(), 10)
-
-        assertThat(response.results).hasSize(3)
-        assertThat(response.results[0].sourceDocumentId).isEqualTo("doc-doc-a")
-        assertThat(response.results[0].retrievalScore).isEqualTo(1.0)
-        assertThat(response.results[1].sourceDocumentId).isEqualTo("doc-doc-c")
-        assertThat(response.results[1].retrievalScore).isEqualTo(0.25)
-        assertThat(response.results[2].sourceDocumentId).isEqualTo("doc-doc-b")
-        assertThat(response.results[2].retrievalScore).isEqualTo(0.0)
-    }
-
-    @Test
-    fun `forwards source types and time cutoff to the indexer`() {
-        val cutoff = java.time.Instant.parse("2026-01-01T00:00:00Z")
-        `when`(documentSets.findAllByNameIn(emptyList())).thenReturn(emptyList())
-        `when`(modelServer.embedQuery("query")).thenReturn(listOf(0.1, 0.2, 0.3))
-        `when`(
-            indexer.searchCandidates(
-                "query",
-                listOf(0.1, 0.2, 0.3),
-                emptyList(),
-                50,
-                listOf("jira", "github"),
+            indexer.keywordSearch(
+                "ABC-123",
+                listOf("Engineering"),
+                10,
+                listOf("jira"),
                 cutoff,
             ),
-        ).thenReturn(SearchCandidateResults(emptyList(), emptyList()))
+        ).thenReturn(listOf(candidate("keyword", 10.0)))
 
-        service.search(
-            "query",
-            emptyList(),
+        val response = service.search(
+            "ABC-123",
+            listOf("Engineering"),
             10,
-            SearchType.HYBRID,
-            sourceTypes = listOf("jira", "github"),
-            timeCutoff = cutoff,
-        )
-
-        verify(indexer).searchCandidates(
-            "query",
-            listOf(0.1, 0.2, 0.3),
-            emptyList(),
-            50,
-            listOf("jira", "github"),
+            SearchType.KEYWORD,
+            listOf("jira"),
             cutoff,
         )
+
+        verify(indexer).keywordSearch("ABC-123", listOf("Engineering"), 10, listOf("jira"), cutoff)
+        verifyNoInteractions(modelServer)
+        assertThat(response.results.map { it.sourceDocumentId }).containsExactly("doc-keyword")
     }
 
     @Test
-    fun `getDocumentContext fetches chunks around the center clamped at zero`() {
-        `when`(indexer.chunksInRange("doc-1", 0, 3)).thenReturn(
-            listOf(
-                candidate("above", score = 1.0).copy(sourceDocumentId = "doc-1", chunkId = 0, content = "c0"),
-                candidate("center", score = 1.0).copy(sourceDocumentId = "doc-1", chunkId = 1, content = "c1"),
-                candidate("below", score = 1.0).copy(sourceDocumentId = "doc-1", chunkId = 3, content = "c3"),
-            ),
-        )
+    fun `semantic search embeds once and performs vector retrieval only`() {
+        `when`(modelServer.embedQuery("deployment guide")).thenReturn(listOf(0.1, 0.2, 0.3))
+        `when`(indexer.vectorSearch(listOf(0.1, 0.2, 0.3), emptyList(), 7, emptyList(), null))
+            .thenReturn(listOf(candidate("semantic", 0.8)))
 
-        val response = service.getDocumentContext("doc-1", chunkId = 1, chunksAbove = 2, chunksBelow = 2)
+        val response = service.search("deployment guide", emptyList(), 7, SearchType.SEMANTIC)
 
-        assertThat(response.sourceDocumentId).isEqualTo("doc-1")
-        assertThat(response.chunks.map { it.chunkId to it.content })
-            .containsExactly(0 to "c0", 1 to "c1", 3 to "c3")
+        verify(modelServer).embedQuery("deployment guide")
+        verify(indexer).vectorSearch(listOf(0.1, 0.2, 0.3), emptyList(), 7, emptyList(), null)
+        assertThat(response.results.map { it.sourceDocumentId }).containsExactly("doc-semantic")
     }
 
     @Test
-    fun `getDocumentContext clamps chunk window to the configured maximum`() {
-        service.getDocumentContext("doc-1", chunkId = 20, chunksAbove = 100, chunksBelow = 100)
+    fun `hybrid search embeds once and delegates native fusion`() {
+        `when`(modelServer.embedQuery("deployment guide")).thenReturn(listOf(0.1, 0.2, 0.3))
+        `when`(indexer.hybridSearch("deployment guide", listOf(0.1, 0.2, 0.3), emptyList(), 5, emptyList(), null))
+            .thenReturn(listOf(candidate("hybrid", 0.9)))
 
-        verify(indexer).chunksInRange("doc-1", 10, 30)
+        val response = service.search("deployment guide", emptyList(), 5, SearchType.HYBRID)
+
+        verify(modelServer).embedQuery("deployment guide")
+        verify(indexer).hybridSearch("deployment guide", listOf(0.1, 0.2, 0.3), emptyList(), 5, emptyList(), null)
+        assertThat(response.results.map { it.sourceDocumentId }).containsExactly("doc-hybrid")
     }
 
     @Test
@@ -156,44 +91,74 @@ class SearchServiceTest {
     }
 
     @Test
-    fun `weightedReciprocalRankFusion combines lists with weights and tie breaking`() {
-        // Doc A: in list 1 (rank 1), in list 2 (rank 2)
-        // Doc B: in list 1 (rank 2)
-        // Doc C: in list 2 (rank 1)
-        val list1 = listOf("doc-a", "doc-b")
-        val list2 = listOf("doc-c", "doc-a")
-        val weights = listOf(1.2, 1.0)
-        val k = 50
-
-        // Doc A: 1.2 / (50 + 1) + 1.0 / (50 + 2) = 1.2/51 + 1.0/52 = 0.02353 + 0.01923 = 0.04276
-        // Doc C: 1.0 / (50 + 1) = 0.01961
-        // Doc B: 1.2 / (50 + 2) = 0.02308
-        // Expected order: Doc A, Doc B, Doc C
-
+    fun `weighted reciprocal rank fusion combines lists with weights and tie breaking`() {
         val merged = service.weightedReciprocalRankFusion(
-            rankedResults = listOf(list1, list2),
-            weights = weights,
+            rankedResults = listOf(listOf("doc-a", "doc-b"), listOf("doc-c", "doc-a")),
+            weights = listOf(1.2, 1.0),
             idExtractor = { it },
-            k = k,
+            k = 50,
         )
 
         assertThat(merged).containsExactly("doc-a", "doc-b", "doc-c")
     }
 
     @Test
-    fun `search returns only keyword results when search_type is KEYWORD`() {
-        val keyword = listOf(candidate("k1", 10.0), candidate("k2", 5.0))
-        val vector = listOf(candidate("v1", 20.0))
+    fun `rrf default comes from search properties`() {
+        val configured = SearchService(
+            SearchProperties(rrfK = 73),
+            modelServer,
+            indexer,
+            documentSets,
+        )
 
-        `when`(documentSets.findAllByNameIn(emptyList())).thenReturn(emptyList())
-        `when`(modelServer.embedQuery("query")).thenReturn(listOf(0.1, 0.2, 0.3))
-        `when`(indexer.searchCandidates("query", listOf(0.1, 0.2, 0.3), emptyList(), 50))
-            .thenReturn(SearchCandidateResults(keyword, vector))
+        assertThat(configured.defaultRrfK()).isEqualTo(73)
+    }
 
-        val response = service.search("query", emptyList(), 10, SearchType.KEYWORD)
+    @Test
+    fun `collapse adjacent chunks keeps best ranked member of each run`() {
+        data class Item(val doc: String?, val chunk: Int?)
+        val ranked = listOf(
+            Item("A", 8),
+            Item("B", 0),
+            Item("A", 7),
+            Item("A", 9),
+            Item("A", 20),
+            Item("B", 2),
+            Item(null, null),
+        )
 
-        assertThat(response.results).hasSize(2)
-        assertThat(response.results.map { it.sourceDocumentId }).containsExactly("doc-k1", "doc-k2")
+        val collapsed = service.collapseAdjacentChunks(ranked, Item::doc, Item::chunk)
+
+        assertThat(collapsed).containsExactly(
+            Item("A", 8),
+            Item("B", 0),
+            Item("A", 20),
+            Item("B", 2),
+            Item(null, null),
+        )
+    }
+
+    @Test
+    fun `getDocumentContext fetches chunks around the center clamped at zero`() {
+        `when`(indexer.chunksInRange("doc-1", 0, 3)).thenReturn(
+            listOf(
+                candidate("above").copy(sourceDocumentId = "doc-1", chunkId = 0, content = "c0"),
+                candidate("center").copy(sourceDocumentId = "doc-1", chunkId = 1, content = "c1"),
+                candidate("below").copy(sourceDocumentId = "doc-1", chunkId = 3, content = "c3"),
+            ),
+        )
+
+        val response = service.getDocumentContext("doc-1", chunkId = 1, chunksAbove = 2, chunksBelow = 2)
+
+        assertThat(response.chunks.map { it.chunkId to it.content })
+            .containsExactly(0 to "c0", 1 to "c1", 3 to "c3")
+    }
+
+    @Test
+    fun `getDocumentContext clamps chunk window to the configured maximum`() {
+        service.getDocumentContext("doc-1", chunkId = 20, chunksAbove = 100, chunksBelow = 100)
+
+        verify(indexer).chunksInRange("doc-1", 10, 30)
     }
 
     private fun candidate(id: String, score: Double = 1.0) = SearchCandidate(

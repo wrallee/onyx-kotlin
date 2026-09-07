@@ -1,6 +1,10 @@
 package com.onyx.foss.kotlin.mcp
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
+import com.onyx.foss.kotlin.config.SearchProperties
+import com.onyx.foss.kotlin.domain.DocumentSetRepository
+import com.onyx.foss.kotlin.ingestion.ModelServerClient
+import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
 import com.onyx.foss.kotlin.service.DocumentContextResponse
 import com.onyx.foss.kotlin.service.SearchResponse
 import com.onyx.foss.kotlin.service.SearchService
@@ -203,37 +207,38 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `fusion tool combines ranked results using weighted RRF`() {
+    fun `fusion tool uses server defaults and collapses adjacent chunks`() {
+        val realSearch = SearchService(
+            SearchProperties(rrfK = 73),
+            mock(ModelServerClient::class.java),
+            mock(OpenSearchIndexer::class.java),
+            mock(DocumentSetRepository::class.java),
+        )
+        val fusionTool = McpSearchTool(realSearch, jacksonObjectMapper())
         val list1 = listOf(
-            mapOf("sourceDocumentId" to "doc-1", "chunkId" to 0, "title" to "Doc 1"),
+            mapOf("sourceDocumentId" to "doc-1", "chunkId" to 0, "title" to "Doc 1A"),
             mapOf("sourceDocumentId" to "doc-2", "chunkId" to 0, "title" to "Doc 2"),
         )
         val list2 = listOf(
-            mapOf("sourceDocumentId" to "doc-2", "chunkId" to 0, "title" to "Doc 2"),
+            mapOf("sourceDocumentId" to "doc-1", "chunkId" to 1, "title" to "Doc 1B"),
             mapOf("sourceDocumentId" to "doc-3", "chunkId" to 0, "title" to "Doc 3"),
         )
-        org.mockito.Mockito.doCallRealMethod().`when`(search).weightedReciprocalRankFusion<Map<String, Any?>>(
-            org.mockito.ArgumentMatchers.anyList(),
-            org.mockito.ArgumentMatchers.anyList(),
-            anyNonNull(),
-            org.mockito.ArgumentMatchers.anyInt(),
-        )
 
-        val result = tool.callFusion(
-            mapOf(
-                "ranked_results" to listOf(list1, list2),
-                "weights" to listOf(1.0, 1.0),
-                "k" to 50,
-            ),
-        )
+        val result = fusionTool.callFusion(mapOf("ranked_results" to listOf(list1, list2)))
 
         assertThat(result.isError() == true).isFalse()
         assertThat(result.content()).isNotEmpty()
     }
 
-    private fun <T> anyNonNull(): T {
-        org.mockito.Mockito.any<T>()
+    @Test
+    fun `fusion schema leaves k default to server configuration`() {
         @Suppress("UNCHECKED_CAST")
-        return (({ _: Any? -> "" }) as Any) as T
+        val properties = McpSearchTool.FUSION_INPUT_SCHEMA["properties"] as Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val k = properties["k"] as Map<String, Any>
+
+        assertThat(k).doesNotContainKey("default")
+        assertThat(McpSearchTool.FUSION_TOOL_DESCRIPTION).contains("Do not blindly fuse")
     }
+
 }
