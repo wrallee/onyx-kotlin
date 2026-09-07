@@ -7,7 +7,7 @@ import org.springframework.web.reactive.function.client.WebClient
 import java.time.Clock
 
 @Configuration
-@EnableConfigurationProperties(OnyxProperties::class)
+@EnableConfigurationProperties(OnyxProperties::class, SearchProperties::class)
 class RuntimeConfiguration {
     @Bean
     fun webClientBuilder(): WebClient.Builder = WebClient.builder()

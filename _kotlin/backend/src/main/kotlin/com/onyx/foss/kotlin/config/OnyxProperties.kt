@@ -20,7 +20,6 @@ data class OnyxProperties(
         val embeddingDimension: Int = 768,
         val maxContextLength: Int = 512,
         val normalizeEmbeddings: Boolean = true,
-        val searchCandidates: Int = 50,
         val connectTimeoutMs: Long = 30_000,
         val readTimeoutMs: Long = 600_000,
         val embedMaxRetries: Int = 2,

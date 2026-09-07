@@ -1,7 +1,7 @@
 package com.onyx.foss.kotlin.service
 
 import tools.jackson.databind.JsonNode
-import com.onyx.foss.kotlin.config.OnyxProperties
+import com.onyx.foss.kotlin.config.SearchProperties
 import com.onyx.foss.kotlin.domain.DocumentSetRepository
 import com.onyx.foss.kotlin.ingestion.ModelServerClient
 import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
@@ -11,7 +11,7 @@ import java.time.Instant
 
 @Service
 class SearchService(
-    private val properties: OnyxProperties,
+    private val searchProperties: SearchProperties,
     private val modelServer: ModelServerClient,
     private val indexer: OpenSearchIndexer,
     private val documentSetRepository: DocumentSetRepository,
@@ -35,12 +35,11 @@ class SearchService(
             require(unknown.isEmpty()) { "Unknown document sets: ${unknown.joinToString()}" }
         }
 
-        val config = properties.modelServer
         val candidates = indexer.searchCandidates(
             query,
             modelServer.embedQuery(query),
             selectedSets,
-            config.searchCandidates,
+            searchProperties.hybridCandidates,
             sourceTypes,
             timeCutoff,
         )
@@ -202,4 +201,3 @@ data class SearchResult(
     val metadata: JsonNode,
     val retrievalScore: Double?,
 )
-
