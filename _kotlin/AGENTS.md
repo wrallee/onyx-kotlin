@@ -1,19 +1,15 @@
-For Superpowers workflows, save implementation plans under
-`docs/superpowers/plans/`, not `plans/`.
+# Communication Protocol
+- **Direct Answer First**: Whenever the user asks a question, gives feedback, or makes an inquiry, ALWAYS answer the user's question directly in the text response FIRST before executing any tools, running background commands, or making code edits.
+- **Never Run Tools Instead of Answering**: Stop and respond immediately when a question is asked. Never proceed with background work or tool invocations while ignoring or delaying answers to the user's inquiry.
+- **Fact-Based Explanation**: Answer with precise facts and root causes, avoiding speculation.
 
-# Container Workload Safety
+# Engineering & Development Rules
+- **Read Official Docs & Migration Guides First**: When performing migrations or adopting new libraries/frameworks, you MUST thoroughly read and reference official migration guides, release notes, and documentation FIRST before making code changes. Never guess or write speculative code without consulting official specs.
+- **No Piece-Meal / Trial-and-Error Editing**: Do NOT make fragmented, line-by-line guess-and-check modifications across files. Understand the full system and root causes, then apply comprehensive, clean, whole-file or coherent batch updates to prevent duplication and syntax regressions.
 
-Do not start the complete Compose stack without checking available resources and required services.
-
-Before running `docker compose up`, `docker compose build`, scaling services, or starting integration infrastructure:
-
-- Check available memory, swap, CPU load, disk space, and running containers.
-- Resolve the services, profiles, and dependencies that the command will start.
-- Inspect declared memory, CPU, and PID limits. Do not assume an unlimited service is safe.
-- Preserve enough capacity for the host, SSH, Docker Engine, and Codex.
-- Start only the services required for the current task. Use explicit service names and profiles.
-- Start dependency groups incrementally. Verify health and resource usage after each group.
-- Stop before starting more services if memory, swap, CPU, I/O, disk, or health becomes unsafe.
-- Do not bypass a failed resource check by retrying the unrestricted command.
-- Do not use unbounded parallel builds or unbounded service scaling.
-- Do not remove volumes or broadly stop unrelated containers without explicit user authorization.
+# Documentation & Workflow Standards (ECC)
+All project documentation and task artifacts MUST be stored under `docs/` using kebab-case (`YYYY-MM-DD-<topic>.md`). Do NOT use root `plans/` or external wrappers like `superpowers`:
+- **Plans**: `docs/plans/` — Implementation steps, affected files, milestones, and testing strategies.
+- **Specs**: `docs/specs/` — Requirements, architectural designs, and API contracts.
+- **Walkthroughs**: `docs/walkthroughs/` — Post-implementation summaries, diffs, and verification proof.
+- **References**: `docs/references/` — Migration guides summary, technical spikes, and research notes.

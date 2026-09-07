@@ -30,6 +30,10 @@ kotlin {
 repositories { mavenCentral() }
 
 dependencies {
+    implementation(platform("org.springframework.ai:spring-ai-bom:1.0.0"))
+    implementation("org.springframework.ai:spring-ai-vector-store")
+    implementation("org.springframework.ai:spring-ai-rag")
+    implementation("org.opensearch.client:opensearch-java:3.10.0")
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:2.0.1"))
     implementation("io.modelcontextprotocol.sdk:mcp-core")
     implementation("io.modelcontextprotocol.sdk:mcp-json-jackson3")
