@@ -76,7 +76,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         val response = postJson("/manage/credential", credential("github", "secret-token"))
 
         assertThat(response.status).isEqualTo(200)
-        assertThat(response.body.path("credential").path("credential_json").path("token").asText()).isEqualTo("********")
+        assertThat(response.body.path("credential").path("credential_json").path("token").asString()).isEqualTo("********")
         assertThat(response.raw).doesNotContain("secret-token")
         assertThat(credentials.count()).isEqualTo(1)
         assertThat(queuedJobs()).isZero()
@@ -92,8 +92,8 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         )
 
         assertThat(response.status).isEqualTo(200)
-        assertThat(response.body.path("credential_json").path("token").asText()).isEqualTo("********")
-        assertThat(admin.credentialSecret(credentialId).path("token").asText()).isEqualTo("secret-token")
+        assertThat(response.body.path("credential_json").path("token").asString()).isEqualTo("********")
+        assertThat(admin.credentialSecret(credentialId).path("token").asString()).isEqualTo("secret-token")
         assertThat(credentials.count()).isEqualTo(1)
         assertThat(queuedJobs()).isZero()
     }
@@ -107,7 +107,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         val response = request(delete("/manage/credential/$credentialId"))
 
         assertThat(response.status).isEqualTo(409)
-        assertThat(response.body.path("detail").asText()).isEqualTo("Credential is still associated with a connector")
+        assertThat(response.body.path("detail").asString()).isEqualTo("Credential is still associated with a connector")
         assertThat(credentials.count()).isEqualTo(1)
         assertThat(pairs.count()).isEqualTo(1)
         assertThat(queuedJobs()).isEqualTo(1)
@@ -121,7 +121,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         val response = putJson("/manage/connector/$connectorId/credential/$credentialId", pairMetadata())
 
         assertThat(response.status).isEqualTo(400)
-        assertThat(response.body.path("detail").asText()).isEqualTo("Connector and credential source do not match")
+        assertThat(response.body.path("detail").asString()).isEqualTo("Connector and credential source do not match")
         assertThat(connectors.count()).isEqualTo(1)
         assertThat(pairs.count()).isZero()
         assertThat(queuedJobs()).isZero()
@@ -186,7 +186,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         val run = postJson("/manage/admin/connector/run-once", mapOf("connector_id" to secondConnectorId))
 
         assertThat(pause.status).isEqualTo(200)
-        assertThat(pause.body.path("status").asText()).isEqualTo("PAUSED")
+        assertThat(pause.body.path("status").asString()).isEqualTo("PAUSED")
         assertThat(run.status).isEqualTo(200)
         assertThat(run.body.path("success").asBoolean()).isTrue()
         assertThat(pairs.findById(firstPairId).orElseThrow().status.name).isEqualTo("PAUSED")
@@ -241,7 +241,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         val response = postJson("/manage/admin/document-set", documentSet("missing", listOf(999L)))
 
         assertThat(response.status).isEqualTo(400)
-        assertThat(response.body.path("detail").asText()).isEqualTo("Document set references a missing connector")
+        assertThat(response.body.path("detail").asString()).isEqualTo("Document set references a missing connector")
         assertThat(sets.count()).isZero()
         assertThat(joinCount()).isZero()
         assertThat(queuedJobs()).isZero()
@@ -254,7 +254,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
 
         assertThat(first.status).isEqualTo(200)
         assertThat(duplicate.status).isEqualTo(409)
-        assertThat(duplicate.body.path("detail").asText()).isEqualTo("Document set name already exists")
+        assertThat(duplicate.body.path("detail").asString()).isEqualTo("Document set name already exists")
         assertThat(sets.count()).isEqualTo(1)
         assertThat(joinCount()).isZero()
         assertThat(queuedJobs()).isZero()
@@ -271,7 +271,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         )
 
         assertThat(response.status).isEqualTo(409)
-        assertThat(response.body.path("detail").asText()).isEqualTo("Document set name already exists")
+        assertThat(response.body.path("detail").asString()).isEqualTo("Document set name already exists")
         assertThat(sets.count()).isEqualTo(2)
         assertThat(sets.findById(firstId).orElseThrow().name).isEqualTo("first")
         assertThat(sets.findById(secondId).orElseThrow().name).isEqualTo("second")
@@ -432,9 +432,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         val zeroPageSize = request(get("/manage/admin/cc-pair/$pairId/errors?page_num=0&page_size=0"))
 
         assertThat(negativePage.status).isEqualTo(400)
-        assertThat(negativePage.body.path("detail").asText()).isEqualTo("page_num must be non-negative")
+        assertThat(negativePage.body.path("detail").asString()).isEqualTo("page_num must be non-negative")
         assertThat(zeroPageSize.status).isEqualTo(400)
-        assertThat(zeroPageSize.body.path("detail").asText()).isEqualTo("page_size must be positive")
+        assertThat(zeroPageSize.body.path("detail").asString()).isEqualTo("page_size must be positive")
         assertThat(pairs.count()).isEqualTo(1)
         assertThat(queuedJobs()).isEqualTo(1)
     }
@@ -458,9 +458,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         val response = request(get("/manage/admin/cc-pair/$pairId/errors?page_num=0&page_size=10"))
 
         val item = response.body.path("items").single()
-        assertThat(item.path("entity_id").asText()).isEqualTo("repository:test/project")
-        assertThat(Instant.parse(item.path("failed_time_range_start").asText())).isEqualTo(missedStart)
-        assertThat(Instant.parse(item.path("failed_time_range_end").asText())).isEqualTo(missedEnd)
+        assertThat(item.path("entity_id").asString()).isEqualTo("repository:test/project")
+        assertThat(Instant.parse(item.path("failed_time_range_start").asString())).isEqualTo(missedStart)
+        assertThat(Instant.parse(item.path("failed_time_range_end").asString())).isEqualTo(missedEnd)
     }
 
     @Test
@@ -474,7 +474,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
 
         val terminal = request(get("/manage/admin/cc-pair/$pairId")).body
 
-        assertThat(Instant.parse(terminal.path("last_pruned").asText())).isEqualTo(prunedAt)
+        assertThat(Instant.parse(terminal.path("last_pruned").asString())).isEqualTo(prunedAt)
         assertThat(terminal.path("last_full_permission_sync").isNull).isTrue()
         assertThat(terminal.path("last_permission_sync_attempt_status").isNull).isTrue()
         assertThat(terminal.path("permission_syncing").asBoolean()).isFalse()
@@ -537,8 +537,8 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
                 .file(MockMultipartFile("files", "a.txt", MediaType.TEXT_PLAIN_VALUE, "a".toByteArray()))
                 .file(MockMultipartFile("files", "b.txt", MediaType.TEXT_PLAIN_VALUE, "b".toByteArray())),
         )
-        val aId = uploaded.body.path("file_paths").first().asText()
-        val bId = uploaded.body.path("file_paths").get(1).asText()
+        val aId = uploaded.body.path("file_paths").first().asString()
+        val bId = uploaded.body.path("file_paths").get(1).asString()
         val configured = patchJson(
             "/manage/admin/connector/$connectorId",
             connector("file", mapOf("file_locations" to listOf(aId, bId), "file_names" to listOf("a.txt", "b.txt"))),
@@ -554,9 +554,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         assertThat(uploaded.status).isEqualTo(200)
         assertThat(configured.status).isEqualTo(200)
         assertThat(response.status).isEqualTo(200)
-        assertThat(response.body.path("file_names").toList().map(JsonNode::asText)).containsExactly("c.txt")
-        assertThat(config.path("file_locations").toList().map(JsonNode::asText)).containsExactly(bId, response.body.path("file_paths").first().asText())
-        assertThat(config.path("file_names").toList().map(JsonNode::asText)).containsExactly("b.txt", "c.txt")
+        assertThat(response.body.path("file_names").toList().map(JsonNode::asString)).containsExactly("c.txt")
+        assertThat(config.path("file_locations").toList().map(JsonNode::asString)).containsExactly(bId, response.body.path("file_paths").first().asString())
+        assertThat(config.path("file_names").toList().map(JsonNode::asString)).containsExactly("b.txt", "c.txt")
         assertThat(connectors.count()).isEqualTo(1)
         assertThat(queuedJobs()).isEqualTo(1)
     }
@@ -569,9 +569,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         )
 
         assertThat(response.status).isEqualTo(200)
-        assertThat(response.body.path("file_paths").toList().map(JsonNode::asText)).hasSize(1)
-        assertThat(response.body.path("file_names").toList().map(JsonNode::asText)).containsExactly("one.txt")
-        val metadataId = response.body.path("zip_metadata_file_id").asText()
+        assertThat(response.body.path("file_paths").toList().map(JsonNode::asString)).hasSize(1)
+        assertThat(response.body.path("file_names").toList().map(JsonNode::asString)).containsExactly("one.txt")
+        val metadataId = response.body.path("zip_metadata_file_id").asString()
         assertThat(metadataId).isNotBlank()
         assertThat(Files.readString(storedFiles.filePath(metadataId))).contains("one.txt")
     }
@@ -590,9 +590,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
             connector(
                 "file",
                 mapOf(
-                    "file_locations" to initial.body.path("file_paths").toList().map(JsonNode::asText),
-                    "file_names" to initial.body.path("file_names").toList().map(JsonNode::asText),
-                    "zip_metadata_file_id" to initial.body.path("zip_metadata_file_id").asText(),
+                    "file_locations" to initial.body.path("file_paths").toList().map(JsonNode::asString),
+                    "file_names" to initial.body.path("file_names").toList().map(JsonNode::asString),
+                    "zip_metadata_file_id" to initial.body.path("zip_metadata_file_id").asString(),
                 ),
             ),
         )
@@ -602,10 +602,10 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
                 .file(MockMultipartFile("files", "second.zip", "application/x-zip", zipFile("two.txt", "Two"))),
         )
         val config = requireNotNull(connectors.findById(connectorId).orElseThrow().connectorSpecificConfig)
-        val metadata = Files.readString(storedFiles.filePath(config.path("zip_metadata_file_id").asText()))
+        val metadata = Files.readString(storedFiles.filePath(config.path("zip_metadata_file_id").asString()))
 
         assertThat(response.status).isEqualTo(200)
-        assertThat(config.path("file_names").toList().map(JsonNode::asText)).containsExactly("one.txt", "two.txt")
+        assertThat(config.path("file_names").toList().map(JsonNode::asString)).containsExactly("one.txt", "two.txt")
         assertThat(metadata).contains("one.txt", "two.txt")
     }
 
@@ -619,7 +619,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
 
             assertThat(response.status).isEqualTo(200)
             assertThat(response.body.path("file_paths").size()).isEqualTo(1)
-            assertThat(response.body.path("zip_metadata_file_id").asText()).isNotBlank()
+            assertThat(response.body.path("zip_metadata_file_id").asString()).isNotBlank()
         }
     }
 
@@ -699,8 +699,8 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
             .body.flatMap { it.path("indexing_statuses").toList() }
             .first { it.path("cc_pair_id").asLong() == pairId }
 
-        assertThat(Instant.parse(detail.body.path("last_indexed").asText())).isEqualTo(expected)
-        assertThat(Instant.parse(listing.path("last_success").asText())).isEqualTo(expected)
+        assertThat(Instant.parse(detail.body.path("last_indexed").asString())).isEqualTo(expected)
+        assertThat(Instant.parse(listing.path("last_success").asString())).isEqualTo(expected)
     }
 
     private fun associate(connectorId: Long, credentialId: Long, name: String = "pair"): Long {

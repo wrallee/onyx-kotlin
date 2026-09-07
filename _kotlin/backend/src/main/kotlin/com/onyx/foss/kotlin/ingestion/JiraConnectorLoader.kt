@@ -152,10 +152,10 @@ class JiraConnectorLoader(
                     "/rest/api/3/search/jql?jql=${query(context.jql)}&maxResults=$CLOUD_ID_PAGE_SIZE" +
                         "&fields=id$cursorQuery",
                 )
-                response.path("issues").toList().mapNotNull{ issue -> issue.path("id").asText().takeIf(String::isNotBlank) }
+                response.path("issues").toList().mapNotNull{ issue -> issue.path("id").asString().takeIf(String::isNotBlank) }
                     .chunked(context.pageSize)
                     .forEach(pendingIds::add)
-                cursor = response.path("nextPageToken").asText().takeIf(String::isNotBlank)
+                cursor = response.path("nextPageToken").asString().takeIf(String::isNotBlank)
                 idsDone = cursor == null
                 if (pendingIds.isEmpty()) {
                     val checkpoint = JiraCheckpoint(
@@ -196,12 +196,12 @@ class JiraConnectorLoader(
         )
         val issues = response.path("issues").toList()
         val returnedIds = issues.flatMapTo(mutableSetOf()) { issue ->
-            listOf(issue.path("id").asText(), issue.path("key").asText()).filter(String::isNotBlank)
+            listOf(issue.path("id").asString(), issue.path("key").asString()).filter(String::isNotBlank)
         }
         val issueErrors = response.path("issueErrors").toList()
         val errorById = issueErrors.associateBy { error ->
             listOf("issueId", "issueIdOrKey", "id", "key")
-                .firstNotNullOfOrNull { field -> error.path(field).asText().takeIf(String::isNotBlank) }
+                .firstNotNullOfOrNull { field -> error.path(field).asString().takeIf(String::isNotBlank) }
                 .orEmpty()
         }
         val missingIds = issueIds.filterNot(returnedIds::contains)
@@ -214,11 +214,11 @@ class JiraConnectorLoader(
         }.toMutableList()
         issueErrors.filter { error ->
             val id = listOf("issueId", "issueIdOrKey", "id", "key")
-                .firstNotNullOfOrNull { field -> error.path(field).asText().takeIf(String::isNotBlank) }
+                .firstNotNullOfOrNull { field -> error.path(field).asString().takeIf(String::isNotBlank) }
             id == null || id !in missingIds
         }.forEach { error ->
             val issueId = listOf("issueId", "issueIdOrKey", "id", "key")
-                .firstNotNullOfOrNull { field -> error.path(field).asText().takeIf(String::isNotBlank) }
+                .firstNotNullOfOrNull { field -> error.path(field).asString().takeIf(String::isNotBlank) }
             failures += ConnectorFailure(
                 target = FailureTarget.Entity(issueId?.let { "jira_issue:$it" } ?: "jira_issue:unknown"),
                 message = issueErrorMessage(error, issueId ?: "unknown"),
@@ -237,8 +237,8 @@ class JiraConnectorLoader(
     }
 
     private fun issueErrorMessage(error: JsonNode?, issueId: String): String {
-        val details = (error?.path("errorMessages")?.toList()?.map(JsonNode::asText)).orEmpty() +
-            listOfNotNull(error?.path("errorMessage")?.asText()?.takeIf(String::isNotBlank))
+        val details = (error?.path("errorMessages")?.toList()?.map(JsonNode::asString)).orEmpty() +
+            listOfNotNull(error?.path("errorMessage")?.asString()?.takeIf(String::isNotBlank))
         return details.filter(String::isNotBlank).joinToString("; ")
             .ifBlank { "Jira bulk fetch did not return requested issue $issueId" }
     }
@@ -253,7 +253,7 @@ class JiraConnectorLoader(
         val failures = mutableListOf<ConnectorFailure>()
         var enumerationComplete = true
         issues.forEach { issue ->
-            val key = issue.path("key").asText().ifBlank { issue.path("id").asText().ifBlank { "unknown" } }
+            val key = issue.path("key").asString().ifBlank { issue.path("id").asString().ifBlank { "unknown" } }
             try {
                 val document = convertIssue(context, issue, seenHierarchyNodeIds)
                 if (document == null) {
@@ -281,18 +281,18 @@ class JiraConnectorLoader(
         val documents = mutableListOf<SourceDocument>()
         val failures = mutableListOf<ConnectorFailure>()
         issues.forEach { issue ->
-            val key = issue.path("key").asText().ifBlank { issue.path("id").asText().ifBlank { "unknown" } }
+            val key = issue.path("key").asString().ifBlank { issue.path("id").asString().ifBlank { "unknown" } }
             try {
                 require(key != "unknown") { "Jira issue key is missing" }
                 val fields = issue.path("fields")
                 require(fields.isObject) { "Jira issue $key has no fields" }
-                val projectKey = fields.path("project").path("key").asText()
+                val projectKey = fields.path("project").path("key").asString()
                 val parent = fields.path("parent")
-                val parentKey = parent.path("key").asText().takeIf(String::isNotBlank)
-                val parentIsEpic = parent.path("fields").path("issuetype").path("name").asText().equals("epic", true)
+                val parentKey = parent.path("key").asString().takeIf(String::isNotBlank)
+                val parentIsEpic = parent.path("fields").path("issuetype").path("name").asString().equals("epic", true)
                 if (projectKey.isNotBlank()) seenHierarchyNodeIds += projectKey
                 if (parentIsEpic && parentKey != null) seenHierarchyNodeIds += parentKey
-                if (fields.path("issuetype").path("name").asText().equals("epic", true)) seenHierarchyNodeIds += key
+                if (fields.path("issuetype").path("name").asString().equals("epic", true)) seenHierarchyNodeIds += key
                 val link = context.jiraBase + "/browse/" + segment(key)
                 documents += SourceDocument(
                     id = link,
@@ -324,16 +324,16 @@ class JiraConnectorLoader(
         issue: JsonNode,
         seenHierarchyNodeIds: MutableSet<String>,
     ): SourceDocument? {
-        val key = issue.path("key").asText()
+        val key = issue.path("key").asString()
         require(key.isNotBlank()) { "Jira issue key is missing" }
         val fields = issue.path("fields")
         require(fields.isObject) { "Jira issue $key has no fields" }
-        val labels = fields.path("labels").toList().map(JsonNode::asText)
+        val labels = fields.path("labels").toList().map(JsonNode::asString)
         if (labels.any(context.labelsToSkip::contains)) return null
 
         val description = adfText(fields.path("description"))
         val comments = fields.path("comment").path("comments").toList().mapNotNull{ comment ->
-            val authorEmail = comment.path("author").path("emailAddress").asText()
+            val authorEmail = comment.path("author").path("emailAddress").asString()
             if (authorEmail in context.commentEmailBlacklist) null else adfText(comment.path("body")).takeIf(String::isNotBlank)
         }
         val content = buildString {
@@ -346,18 +346,18 @@ class JiraConnectorLoader(
         if (content.toByteArray(StandardCharsets.UTF_8).size > maxBytes) return null
 
         val project = fields.path("project")
-        val projectKey = project.path("key").asText()
+        val projectKey = project.path("key").asString()
         val parent = fields.path("parent")
-        val parentKey = parent.path("key").asText().takeIf(String::isNotBlank)
-        val parentIsEpic = parent.path("fields").path("issuetype").path("name").asText().equals("epic", true)
+        val parentKey = parent.path("key").asString().takeIf(String::isNotBlank)
+        val parentIsEpic = parent.path("fields").path("issuetype").path("name").asString().equals("epic", true)
         if (projectKey.isNotBlank()) seenHierarchyNodeIds += projectKey
         if (parentIsEpic && parentKey != null) seenHierarchyNodeIds += parentKey
-        if (fields.path("issuetype").path("name").asText().equals("epic", true)) seenHierarchyNodeIds += key
+        if (fields.path("issuetype").path("name").asString().equals("epic", true)) seenHierarchyNodeIds += key
 
         val metadata = linkedMapOf<String, Any?>(
             "source" to "jira",
             "key" to key,
-            "updated" to fields.path("updated").asText(),
+            "updated" to fields.path("updated").asString(),
             "labels" to labels,
         )
         addText(metadata, "created", fields.path("created"))
@@ -376,7 +376,7 @@ class JiraConnectorLoader(
         val assignee = fields.path("assignee")
         addPerson(metadata, "reporter", reporter)
         addPerson(metadata, "assignee", assignee)
-        val summary = fields.path("summary").asText(key)
+        val summary = fields.path("summary").asString(key)
         val link = context.jiraBase + "/browse/" + segment(key)
         return SourceDocument(
             id = link,
@@ -385,10 +385,10 @@ class JiraConnectorLoader(
             link = link,
             metadata = metadata,
             source = ConnectorSource.JIRA,
-            updatedAt = parseInstant(fields.path("updated").asText()),
+            updatedAt = parseInstant(fields.path("updated").asString()),
             primaryOwners = listOf(reporter, assignee).mapNotNull { person ->
-                person.path("displayName").asText().takeIf(String::isNotBlank)
-                    ?: person.path("emailAddress").asText().takeIf(String::isNotBlank)
+                person.path("displayName").asString().takeIf(String::isNotBlank)
+                    ?: person.path("emailAddress").asString().takeIf(String::isNotBlank)
             }.distinct(),
         )
     }
@@ -463,7 +463,7 @@ class JiraConnectorLoader(
 
         val headers = auth(credentials, cloud)
         val apiBase = if (isScopedToken) {
-            val cloudId = http.get(jiraBase, "/_edge/tenant_info", headers).path("cloudId").asText()
+            val cloudId = http.get(jiraBase, "/_edge/tenant_info", headers).path("cloudId").asString()
             require(cloudId.isNotBlank()) { "Jira scoped token discovery did not return a cloudId" }
             "https://api.atlassian.com/ex/jira/" + segment(cloudId)
         } else {
@@ -497,14 +497,14 @@ class JiraConnectorLoader(
 
     private fun JsonNode?.stringSet(name: String): Set<String> {
         val value = this?.path(name) ?: return emptySet()
-        return if (value.isArray) value.mapNotNull { it.asText().trim().takeIf(String::isNotBlank) }.toSet()
-        else value.asText().split(',').map(String::trim).filter(String::isNotBlank).toSet()
+        return if (value.isArray) value.mapNotNull { it.asString().trim().takeIf(String::isNotBlank) }.toSet()
+        else value.asString().split(',').map(String::trim).filter(String::isNotBlank).toSet()
     }
 
     private fun required(node: JsonNode?, vararg names: String): String = node?.firstText(*names)
         ?: throw IllegalArgumentException("Connector configuration is missing ${names.first()}")
 
-    private fun JsonNode.text(name: String): String? = path(name).asText().trim().takeIf(String::isNotBlank)
+    private fun JsonNode.text(name: String): String? = path(name).asString().trim().takeIf(String::isNotBlank)
 
     private fun JsonNode.firstText(vararg names: String): String? = names.asSequence().mapNotNull { text(it) }.firstOrNull()
 
@@ -513,15 +513,15 @@ class JiraConnectorLoader(
     private fun segment(value: String): String = UriUtils.encodePathSegment(value, StandardCharsets.UTF_8)
 
     private fun adfText(node: JsonNode): String = when {
-        node.isTextual -> node.asText()
+        node.isString -> node.asString()
         node.isArray -> node.toList().map(::adfText).filter(String::isNotBlank).joinToString(" ")
-        node.isObject && node.path("type").asText() == "text" -> node.path("text").asText()
+        node.isObject && node.path("type").asString() == "text" -> node.path("text").asString()
         node.isObject -> adfText(node.path("content"))
         else -> ""
     }
 
     private fun addText(metadata: MutableMap<String, Any?>, key: String, node: JsonNode) {
-        node.asText().takeIf(String::isNotBlank)?.let { metadata[key] = it }
+        node.asString().takeIf(String::isNotBlank)?.let { metadata[key] = it }
     }
 
     private fun addNamed(metadata: MutableMap<String, Any?>, key: String, node: JsonNode) =

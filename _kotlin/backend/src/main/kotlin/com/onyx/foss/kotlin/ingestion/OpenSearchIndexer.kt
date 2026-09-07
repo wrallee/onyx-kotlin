@@ -474,7 +474,7 @@ class OpenSearchIndexer(
                     val missingFields = linkedMapOf<String, Any>()
                     var incompatibleMapping = false
                     val embedding = mapping.properties.path(EMBEDDING_FIELD)
-                    val embeddingType = embedding.path("type").asText()
+                    val embeddingType = embedding.path("type").asString()
                     check(
                         embeddingType.isBlank() ||
                             embeddingType == "knn_vector" &&
@@ -484,7 +484,7 @@ class OpenSearchIndexer(
                     }
                     EXACT_FIELDS.forEach { (field, definition) ->
                         val expectedType = (definition as Map<*, *>)["type"].toString()
-                        val actualType = mapping.properties.path(field).path("type").asText()
+                        val actualType = mapping.properties.path(field).path("type").asString()
                         if (actualType.isBlank()) {
                             missingFields[field] = definition
                         } else if (actualType != expectedType) {
@@ -572,7 +572,7 @@ class OpenSearchIndexer(
             "/$sourceIndex/_settings/index.blocks.write?flat_settings=true",
             "migration write block check",
         ).path(sourceIndex).path("settings")
-        settings.path("index.blocks.write").asText().equals("true", ignoreCase = true) ||
+        settings.path("index.blocks.write").asString().equals("true", ignoreCase = true) ||
             settings.path("index").path("blocks").path("write").asBoolean(false)
     }.getOrDefault(false)
 
@@ -594,7 +594,7 @@ class OpenSearchIndexer(
     }.getOrNull()?.takeIf { hasExactMappings(it.properties) }
 
     private fun hasExactMappings(propertiesNode: JsonNode): Boolean = EXACT_FIELDS.all { (field, definition) ->
-        propertiesNode.path(field).path("type").asText() == (definition as Map<*, *>)["type"].toString()
+        propertiesNode.path(field).path("type").asString() == (definition as Map<*, *>)["type"].toString()
     }
 
     private fun mapping(index: String, operation: String): IndexMapping {

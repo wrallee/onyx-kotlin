@@ -553,7 +553,7 @@ class AdminService(
         if (!current.isObject || !update.isObject) return update
         val merged = update.deepCopy() as ObjectNode
         update.properties().forEach { (name, value) ->
-            if (value.isTextual && value.asText() == "********") merged.set(name, current.path(name))
+            if (value.isString && value.asString() == "********") merged.set(name, current.path(name))
         }
         return merged
     }

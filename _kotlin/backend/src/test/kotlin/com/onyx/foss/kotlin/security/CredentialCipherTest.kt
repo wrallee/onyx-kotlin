@@ -19,6 +19,6 @@ class CredentialCipherTest {
 
         assertNotEquals(secret.toString(), encrypted)
         assertEquals(secret, cipher.decrypt(encrypted))
-        assertEquals("********", cipher.masked(secret).path("token").asText())
+        assertEquals("********", cipher.masked(secret).path("token").asString())
     }
 }

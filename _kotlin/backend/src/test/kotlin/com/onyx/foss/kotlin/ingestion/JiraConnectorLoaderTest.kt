@@ -269,7 +269,7 @@ class JiraConnectorLoaderTest {
         server.takeRequest()
         val payloads = (1..3).map { mapper.readTree(server.takeRequest().body.readUtf8()) }
         assertEquals(listOf(4, 2, 2), payloads.map { it.path("issueIdsOrKeys").size() })
-        assertTrue(payloads.all { payload -> payload.path("fields").any { it.asText() == "summary" } })
+        assertTrue(payloads.all { payload -> payload.path("fields").any { it.asString() == "summary" } })
     }
 
     @Test
@@ -290,7 +290,7 @@ class JiraConnectorLoaderTest {
                 if (request.requestUrl!!.encodedPath.endsWith("/search/jql")) {
                     return jsonResponse(mapper.writeValueAsString(mapOf("issues" to ids.map { mapOf("id" to it) })))
                 }
-                val requested = mapper.readTree(request.body.readUtf8()).path("issueIdsOrKeys").toList().map(JsonNode::asText)
+                val requested = mapper.readTree(request.body.readUtf8()).path("issueIdsOrKeys").toList().map(JsonNode::asString)
                 requestSizes += requested.size
                 return jsonResponse(bulkPage(*requested.map { issue("ENG-$it", id = it) }.toTypedArray()))
             }
@@ -639,7 +639,7 @@ class JiraConnectorLoaderTest {
             if (request.requestUrl!!.encodedPath.endsWith("/search/jql")) {
                 return jsonResponse(mapper.writeValueAsString(mapOf("issues" to ids.map { mapOf("id" to it) })))
             }
-            val requested = mapper.readTree(request.body.readUtf8()).path("issueIdsOrKeys").toList().map(JsonNode::asText)
+            val requested = mapper.readTree(request.body.readUtf8()).path("issueIdsOrKeys").toList().map(JsonNode::asString)
             if ("BAD" in requested) return jsonResponse("{")
             return jsonResponse(bulkPage(*requested.map { issue("ENG-$it", id = it) }.toTypedArray()))
         }

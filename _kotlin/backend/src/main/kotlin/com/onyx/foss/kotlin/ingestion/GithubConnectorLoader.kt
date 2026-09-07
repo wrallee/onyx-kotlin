@@ -397,7 +397,7 @@ class GithubConnectorLoader(
                 val link = item.text("html_url")
                 failures += ConnectorFailure(
                     link?.let { FailureTarget.Document(it, it) }
-                        ?: FailureTarget.Entity("${repository.fullName}:${type.label}:${item.path("id").asText("unknown")}"),
+                        ?: FailureTarget.Entity("${repository.fullName}:${type.label}:${item.path("id").asString("unknown")}"),
                     "Failed to convert GitHub ${type.label}: ${error.message ?: error::class.simpleName}",
                     "github_${type.label}_processing",
                 )
@@ -520,14 +520,14 @@ class GithubConnectorLoader(
                 filePaths = mutableListOf<String>().also { paths ->
                     tree.path("tree").forEach { entry ->
                         if (
-                            entry.path("type").asText() == "blob" &&
+                            entry.path("type").asString() == "blob" &&
                             isIndexablePath(
-                                entry.path("path").asText(),
+                                entry.path("path").asString(),
                                 entry.path("size").takeIf(JsonNode::isNumber)?.asInt(),
                             )
                         ) {
                             if (paths.size == MAX_FILE_PATHS) checkpointLimit("file path count exceeds $MAX_FILE_PATHS")
-                            paths += entry.path("path").asText()
+                            paths += entry.path("path").asString()
                         }
                     }
                     paths.sort()
@@ -563,8 +563,8 @@ class GithubConnectorLoader(
                     context,
                     "${repositoryPath(context.owner, repository.name)}/contents/${pathSegments(path)}?ref=${query(branch)}",
                 ).body
-                val encoding = contentResponse.path("encoding").asText()
-                val encoded = contentResponse.path("content").asText().replace("\n", "")
+                val encoding = contentResponse.path("encoding").asString()
+                val encoded = contentResponse.path("content").asString().replace("\n", "")
                 require(encoding == "base64" && encoded.isNotBlank()) {
                     "Could not decode content for $path (encoding=$encoding)"
                 }
@@ -600,17 +600,17 @@ class GithubConnectorLoader(
         val number = item.path("number").asInt()
         require(number > 0) { "GitHub ${type.label} number is missing" }
         val link = item.text("html_url") ?: error("GitHub ${type.label} URL is missing")
-        val title = item.path("title").asText()
-        val author = item.path("user").path("login").asText().takeIf(String::isNotBlank)
-        val assignees = item.path("assignees").toList().mapNotNull{ it.path("login").asText().takeIf(String::isNotBlank) }
-        val labels = item.path("labels").toList().mapNotNull{ it.path("name").asText().takeIf(String::isNotBlank) }
+        val title = item.path("title").asString()
+        val author = item.path("user").path("login").asString().takeIf(String::isNotBlank)
+        val assignees = item.path("assignees").toList().mapNotNull{ it.path("login").asString().takeIf(String::isNotBlank) }
+        val labels = item.path("labels").toList().mapNotNull{ it.path("name").asString().takeIf(String::isNotBlank) }
         val metadata = linkedMapOf<String, Any?>(
             "source" to "github",
             "repository" to repository.fullName,
             "repo" to repository.fullName,
             "object_type" to type.objectType,
             "id" to number,
-            "state" to item.path("state").asText(),
+            "state" to item.path("state").asString(),
             "user" to userInfo(item.path("user")),
             "assignees" to item.path("assignees").toList().map(::userInfo),
             "labels" to labels,
@@ -626,7 +626,7 @@ class GithubConnectorLoader(
         return SourceDocument(
             id = link,
             title = "$number: $title",
-            content = item.path("body").asText(),
+            content = item.path("body").asString(),
             link = link,
             metadata = metadata,
             externalAccess = access,
@@ -821,10 +821,10 @@ class GithubConnectorLoader(
             node.get(name)?.let { if (!it.isIntegralNumber) invalidCheckpointType(name) }
         }
         listOf("stage").forEach { name ->
-            node.get(name)?.let { if (!it.isTextual) invalidCheckpointType(name) }
+            node.get(name)?.let { if (!it.isString) invalidCheckpointType(name) }
         }
         listOf("repositoryOwnerKind", "pullRequestCursor", "issueCursor", "branch").forEach { name ->
-            node.get(name)?.let { if (!it.isNull && !it.isTextual) invalidCheckpointType(name) }
+            node.get(name)?.let { if (!it.isNull && !it.isString) invalidCheckpointType(name) }
         }
         node.get("repositories")?.let { repositories ->
             if (!repositories.isArray) invalidCheckpointType("repositories")
@@ -832,7 +832,7 @@ class GithubConnectorLoader(
         }
         node.get("repository")?.let { if (!it.isNull) validateRepositoryTypes(it, "repository") }
         node.get("filePaths")?.let { paths ->
-            if (!paths.isNull && (!paths.isArray || paths.any { !it.isTextual })) invalidCheckpointType("filePaths")
+            if (!paths.isNull && (!paths.isArray || paths.any { !it.isString })) invalidCheckpointType("filePaths")
         }
     }
 
@@ -841,9 +841,9 @@ class GithubConnectorLoader(
         node.get("id")?.let { if (!it.isIntegralNumber) invalidCheckpointType("$field.id") }
         node.get("isPrivate")?.let { if (!it.isBoolean) invalidCheckpointType("$field.isPrivate") }
         listOf("name", "fullName", "htmlUrl", "defaultBranch").forEach { name ->
-            node.get(name)?.let { if (!it.isTextual) invalidCheckpointType("$field.$name") }
+            node.get(name)?.let { if (!it.isString) invalidCheckpointType("$field.$name") }
         }
-        node.get("pushedAt")?.let { if (!it.isNull && !it.isTextual) invalidCheckpointType("$field.pushedAt") }
+        node.get("pushedAt")?.let { if (!it.isNull && !it.isString) invalidCheckpointType("$field.pushedAt") }
     }
 
     private fun invalidCheckpointType(field: String): Nothing =
@@ -992,7 +992,7 @@ class GithubConnectorLoader(
     }
 
     private fun userInfo(node: JsonNode): Map<String, String> = listOf("login", "name", "email")
-        .mapNotNull { key -> node.path(key).asText().takeIf(String::isNotBlank)?.let { key to it } }
+        .mapNotNull { key -> node.path(key).asString().takeIf(String::isNotBlank)?.let { key to it } }
         .toMap()
 
     private fun repositoryPath(owner: String, repository: String): String =
@@ -1005,7 +1005,7 @@ class GithubConnectorLoader(
     private fun query(value: String): String = UriUtils.encodeQueryParam(value, StandardCharsets.UTF_8)
 
     private fun JsonNode?.text(name: String): String? =
-        this?.path(name)?.asText()?.takeIf(String::isNotBlank)
+        this?.path(name)?.asString()?.takeIf(String::isNotBlank)
 
     private fun JsonNode?.boolean(name: String, default: Boolean): Boolean =
         this?.path(name)?.takeIf(JsonNode::isBoolean)?.asBoolean() ?: default

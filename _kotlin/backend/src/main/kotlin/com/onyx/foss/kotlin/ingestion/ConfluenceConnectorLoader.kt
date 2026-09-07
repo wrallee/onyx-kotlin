@@ -120,7 +120,7 @@ class ConfluenceConnectorLoader(
         val outputFailures = parseFailures.toMutableList()
         val seen = mutableSetOf<String>()
         pages.forEach { page ->
-            val pageId = page.path("id").asText()
+            val pageId = page.path("id").asString()
             seen += pageId
             val result = processPage(
                 context,
@@ -168,7 +168,7 @@ class ConfluenceConnectorLoader(
             else -> "type=page"
         }
         val labels = config?.path("labels_to_skip")?.takeIf(JsonNode::isArray)
-            ?.mapNotNull { it.asText().takeIf(String::isNotBlank) }.orEmpty().distinct()
+            ?.mapNotNull { it.asString().takeIf(String::isNotBlank) }.orEmpty().distinct()
         if (labels.isNotEmpty()) query += " and label not in (${labels.joinToString(",") { "'$it'" }})"
         val offsetSeconds = ((config?.path("timezone_offset")?.asDouble(0.0) ?: 0.0) * 3600).toInt()
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneOffset.ofTotalSeconds(offsetSeconds))
@@ -308,7 +308,7 @@ class ConfluenceConnectorLoader(
             val results = response.path("results").takeIf(JsonNode::isArray)?.toList().orEmpty()
             val oldPath = path
             val nextStart = queryInt(oldPath, "start") + results.size
-            var next = response.path("_links").path("next").asText().takeIf(String::isNotBlank)
+            var next = response.path("_links").path("next").asString().takeIf(String::isNotBlank)
             if (next != null && currentLimit != requestedLimit) next = updateQuery(next, "limit", currentLimit.toString())
             if (next != null && !context.isCloud && results.isNotEmpty()) next = updateQuery(next, "start", nextStart.toString())
             if (forceOffsetPagination && next == null && results.size >= currentLimit) {
@@ -348,7 +348,7 @@ class ConfluenceConnectorLoader(
     private fun expandNested(context: Context, node: JsonNode, limit: Int) {
         when (node) {
             is ObjectNode -> {
-                val next = node.path("_links").path("next").asText().takeIf(String::isNotBlank)
+                val next = node.path("_links").path("next").asString().takeIf(String::isNotBlank)
                 val results = node.path("results") as? ArrayNode
                 if (next != null && results != null) paginate(context, next, limit).forEach(results::add)
                 node.properties().forEach { (_, value) -> expandNested(context, value, limit) }
@@ -363,29 +363,29 @@ class ConfluenceConnectorLoader(
         start: Instant?,
         end: Instant?,
     ): ProcessResult {
-        val pageId = page.path("id").asText().ifBlank { "unknown" }
-        val pageUrl = page.path("_links").path("webui").asText().takeIf(String::isNotBlank)
+        val pageId = page.path("id").asString().ifBlank { "unknown" }
+        val pageUrl = page.path("_links").path("webui").asString().takeIf(String::isNotBlank)
             ?.let { buildContentUrl(context, it) }
         val access = ExternalAccess(isPublic = true)
         val pageDocument = try {
             require(pageId != "unknown") { "Confluence page id is missing" }
-            val title = page.path("title").asText().ifBlank { pageId }
-            val updated = page.path("version").path("when").asText().takeIf(String::isNotBlank)
+            val title = page.path("title").asString().ifBlank { pageId }
+            val updated = page.path("version").path("when").asString().takeIf(String::isNotBlank)
                 ?: error("Confluence page $pageId has no version timestamp")
             requireNotNull(pageUrl) { "Confluence page $pageId has no web link" }
-            val html = page.path("body").path("storage").path("value").asText()
-                .ifBlank { page.path("body").path("view").path("value").asText() }
+            val html = page.path("body").path("storage").path("value").asString()
+                .ifBlank { page.path("body").path("view").path("value").asString() }
             val comments = if (context.config.boolean("include_comments", true)) comments(context, pageId) else ""
-            val labels = page.path("metadata").path("labels").path("results").toList().mapNotNull{ it.path("name").asText().takeIf(String::isNotBlank) }
-            val spaceKey = page.path("space").path("key").asText()
+            val labels = page.path("metadata").path("labels").path("results").toList().mapNotNull{ it.path("name").asString().takeIf(String::isNotBlank) }
+            val spaceKey = page.path("space").path("key").asString()
             val metadata = linkedMapOf<String, Any?>(
                 "source" to "confluence",
                 "confluence_page_id" to pageId,
                 "space" to spaceKey,
                 "labels" to labels,
-                "created" to page.path("history").path("createdDate").asText(),
+                "created" to page.path("history").path("createdDate").asString(),
                 "parent_hierarchy_raw_node_id" to (
-                    page.path("ancestors").lastOrNull()?.path("id")?.asText()
+                    page.path("ancestors").lastOrNull()?.path("id")?.asString()
                         ?.takeIf(String::isNotBlank) ?: spaceKey.takeIf(String::isNotBlank)
                     ),
             )
@@ -400,8 +400,8 @@ class ConfluenceConnectorLoader(
                 updatedAt = parseInstant(updated),
                 primaryOwners = page.path("version").path("by").let { owner ->
                     listOfNotNull(
-                        owner.path("email").asText().takeIf(String::isNotBlank)
-                            ?: owner.path("displayName").asText().takeIf(String::isNotBlank),
+                        owner.path("email").asString().takeIf(String::isNotBlank)
+                            ?: owner.path("displayName").asString().takeIf(String::isNotBlank),
                     )
                 },
             )
@@ -429,7 +429,7 @@ class ConfluenceConnectorLoader(
     private fun comments(context: Context, pageId: String): String {
         val cql = "type=comment and container='$pageId'${labelFilter(context.config)}"
         val comments = paginate(context, buildCqlPath(cql, COMMENT_EXPAND), DEFAULT_PAGE_SIZE)
-            .map { parsePageHtml(context, it.path("body").path("storage").path("value").asText(), mutableSetOf()) }
+            .map { parsePageHtml(context, it.path("body").path("storage").path("value").asString(), mutableSetOf()) }
             .filter(String::isNotBlank)
         return comments.joinToString(separator = "", prefix = if (comments.isEmpty()) "" else "\n") { "Comment:\n$it" }
     }
@@ -442,8 +442,8 @@ class ConfluenceConnectorLoader(
         inheritedAccess: ExternalAccess?,
     ): ProcessResult {
         if (!context.config.boolean("include_attachments", true)) return ProcessResult()
-        val pageId = page.path("id").asText().ifBlank { "unknown" }
-        val pageUrl = page.path("_links").path("webui").asText().takeIf(String::isNotBlank)
+        val pageId = page.path("id").asString().ifBlank { "unknown" }
+        val pageUrl = page.path("_links").path("webui").asString().takeIf(String::isNotBlank)
             ?.let { buildContentUrl(context, it) } ?: "page_id:$pageId"
         val documents = mutableListOf<SourceDocument>()
         val failures = mutableListOf<ConnectorFailure>()
@@ -496,23 +496,23 @@ class ConfluenceConnectorLoader(
         attachment: JsonNode,
         inheritedAccess: ExternalAccess?,
     ): AttachmentResult {
-        val pageId = page.path("id").asText()
-        val attachmentId = attachment.path("id").asText()
-        val title = attachment.path("title").asText().ifBlank { attachmentId }
-        val mediaType = attachment.path("metadata").path("mediaType").asText()
-        val webui = attachment.path("_links").path("webui").asText()
+        val pageId = page.path("id").asString()
+        val attachmentId = attachment.path("id").asString()
+        val title = attachment.path("title").asString().ifBlank { attachmentId }
+        val mediaType = attachment.path("metadata").path("mediaType").asString()
+        val webui = attachment.path("_links").path("webui").asString()
         val documentId = buildContentUrl(context, webui)
         val objectPath = if (context.isCloud) {
             "/download/attachments/${segment(pageId)}/${pathSegment(title)}"
         } else {
-            attachment.path("_links").path("download").asText()
+            attachment.path("_links").path("download").asString()
         }
         val objectUrl = buildContentUrl(context, objectPath)
         return try {
             val downloadPath = if (context.isCloud) {
                 "/rest/api/content/${segment(pageId)}/child/attachment/${segment(attachmentId)}/download"
             } else {
-                attachment.path("_links").path("download").asText()
+                attachment.path("_links").path("download").asString()
             }
             val bytes = getBytes(context, downloadPath)
             require(bytes.isNotEmpty()) { "Attachment download was empty" }
@@ -521,7 +521,7 @@ class ConfluenceConnectorLoader(
             if (!isImage && content.length > context.config.int("attachment_char_count_threshold", DEFAULT_ATTACHMENT_CHAR_LIMIT)) {
                 return AttachmentResult()
             }
-            val labels = attachment.path("metadata").path("labels").path("results").toList().mapNotNull{ it.path("name").asText().takeIf(String::isNotBlank) }
+            val labels = attachment.path("metadata").path("labels").path("results").toList().mapNotNull{ it.path("name").asString().takeIf(String::isNotBlank) }
             AttachmentResult(
                 document = SourceDocument(
                     id = documentId,
@@ -530,8 +530,8 @@ class ConfluenceConnectorLoader(
                     link = objectUrl,
                     metadata = mapOf(
                         "source" to "confluence",
-                        "space" to attachment.path("space").path("key").asText()
-                            .ifBlank { page.path("space").path("key").asText() },
+                        "space" to attachment.path("space").path("key").asString()
+                            .ifBlank { page.path("space").path("key").asString() },
                         "labels" to labels,
                         "parent_page_id" to pageUrl,
                         "parent_hierarchy_raw_node_id" to pageUrl,
@@ -540,11 +540,11 @@ class ConfluenceConnectorLoader(
                     ),
                     externalAccess = inheritedAccess,
                     source = ConnectorSource.CONFLUENCE,
-                    updatedAt = attachment.path("version").path("when").asText().takeIf(String::isNotBlank)?.let(::parseInstant),
+                    updatedAt = attachment.path("version").path("when").asString().takeIf(String::isNotBlank)?.let(::parseInstant),
                     primaryOwners = attachment.path("version").path("by").let { owner ->
                         listOfNotNull(
-                            owner.path("email").asText().takeIf(String::isNotBlank)
-                                ?: owner.path("displayName").asText().takeIf(String::isNotBlank),
+                            owner.path("email").asString().takeIf(String::isNotBlank)
+                                ?: owner.path("displayName").asString().takeIf(String::isNotBlank),
                         )
                     },
                 ),
@@ -582,13 +582,13 @@ class ConfluenceConnectorLoader(
             val failures = mutableListOf<ConnectorFailure>()
             result.results.forEach { rawPage ->
                 val page = rawPage.deepCopy().also { expandNested(context, it, limit) }
-                val pageId = page.path("id").asText()
-                val pageUrl = buildContentUrl(context, page.path("_links").path("webui").asText())
-                val spaceKey = page.path("space").path("key").asText()
+                val pageId = page.path("id").asString()
+                val pageUrl = buildContentUrl(context, page.path("_links").path("webui").asString())
+                val spaceKey = page.path("space").path("key").asString()
                 val access = ExternalAccess(isPublic = true)
                 documents += SourceDocument(
                     id = pageUrl,
-                    title = page.path("title").asText(pageId),
+                    title = page.path("title").asString(pageId),
                     content = "",
                     link = pageUrl,
                     metadata = mapOf(
@@ -596,7 +596,7 @@ class ConfluenceConnectorLoader(
                         "confluence_page_id" to pageId,
                         "space" to spaceKey,
                         "parent_hierarchy_raw_node_id" to (
-                            page.path("ancestors").lastOrNull()?.path("id")?.asText()
+                            page.path("ancestors").lastOrNull()?.path("id")?.asString()
                                 ?.takeIf(String::isNotBlank) ?: spaceKey.takeIf(String::isNotBlank)
                             ),
                     ),
@@ -607,18 +607,18 @@ class ConfluenceConnectorLoader(
                     retrieveSlimAttachments(context, pageId, start, end)
                         .filter { includeAttachment(context.config, it) }
                         .forEach { attachment ->
-                            val attachmentUrl = buildContentUrl(context, attachment.path("_links").path("webui").asText())
+                            val attachmentUrl = buildContentUrl(context, attachment.path("_links").path("webui").asString())
                             documents += SourceDocument(
                                 id = attachmentUrl,
-                                title = attachment.path("title").asText(attachmentUrl),
+                                title = attachment.path("title").asString(attachmentUrl),
                                 content = "",
                                 link = attachmentUrl,
                                 metadata = mapOf(
                                     "source" to "confluence",
-                                    "space" to attachment.path("space").path("key").asText().ifBlank { spaceKey },
+                                    "space" to attachment.path("space").path("key").asString().ifBlank { spaceKey },
                                     "parent_page_id" to pageUrl,
                                     "parent_hierarchy_raw_node_id" to pageUrl,
-                                    "mime_type" to attachment.path("metadata").path("mediaType").asText(),
+                                    "mime_type" to attachment.path("metadata").path("mediaType").asString(),
                                 ),
                                 externalAccess = access,
                                 source = ConnectorSource.CONFLUENCE,
@@ -661,7 +661,7 @@ class ConfluenceConnectorLoader(
         if (cache.containsKey(userId)) return cache[userId] ?: UNKNOWN_USER
         val displayName = listOf("key", "accountId").firstNotNullOfOrNull { field ->
             try {
-                get(context, "/rest/api/user?$field=${query(userId)}").path("displayName").asText().takeIf(String::isNotBlank)
+                get(context, "/rest/api/user?$field=${query(userId)}").path("displayName").asString().takeIf(String::isNotBlank)
             } catch (_: Exception) {
                 null
             }
@@ -687,7 +687,7 @@ class ConfluenceConnectorLoader(
         val apiBase = if (config.boolean("scoped_token", false)) {
             val parsed = URI.create(wikiBase)
             val tenantBase = "${parsed.scheme}://${parsed.rawAuthority}"
-            val cloudId = http.get(tenantBase, "/_edge/tenant_info", headers).path("cloudId").asText()
+            val cloudId = http.get(tenantBase, "/_edge/tenant_info", headers).path("cloudId").asString()
             require(cloudId.isNotBlank()) { "Confluence scoped token could not resolve a Cloud ID" }
             "https://api.atlassian.com/ex/confluence/${segment(cloudId)}${parsed.rawPath.trimEnd('/')}"
         } else {
@@ -732,7 +732,7 @@ class ConfluenceConnectorLoader(
                 val page = runCatching {
                     paginate(context, buildCqlPath("type=page and title='$title'", PROBLEMATIC_BODY_EXPAND), 1).firstOrNull()
                 }.getOrNull()
-                val included = page?.path("body")?.path("storage")?.path("value")?.asText()
+                val included = page?.path("body")?.path("storage")?.path("value")?.asString()
                     ?.let { parsePageHtml(context, it, fetchedTitles) }.orEmpty()
                 text = text.replace("{{INCLUDE:$title}}", included)
             }
@@ -751,17 +751,17 @@ class ConfluenceConnectorLoader(
 
     private fun labelFilter(config: JsonNode?): String {
         val labels = config?.path("labels_to_skip")?.takeIf(JsonNode::isArray)
-            ?.mapNotNull { it.asText().takeIf(String::isNotBlank) }.orEmpty().distinct()
+            ?.mapNotNull { it.asString().takeIf(String::isNotBlank) }.orEmpty().distinct()
         return if (labels.isEmpty()) "" else " and label not in (${labels.joinToString(",") { "'$it'" }})"
     }
 
     private fun includeAttachment(config: JsonNode?, attachment: JsonNode): Boolean {
-        val mediaType = attachment.path("metadata").path("mediaType").asText().lowercase()
+        val mediaType = attachment.path("metadata").path("mediaType").asString().lowercase()
         if (mediaType.startsWith("image/") && !config.boolean("allow_images", false)) return false
         if (mediaType.startsWith("image/")) return mediaType in IMAGE_MIME_TYPES
         val size = attachment.path("extensions").path("fileSize").asLong(0)
         if (size > config.int("attachment_size_threshold", DEFAULT_ATTACHMENT_SIZE_LIMIT)) return false
-        val title = attachment.path("title").asText().lowercase()
+        val title = attachment.path("title").asString().lowercase()
         return ALLOWED_EXTENSIONS.any(title::endsWith)
     }
 
@@ -852,7 +852,7 @@ class ConfluenceConnectorLoader(
 
     private fun JsonNode?.boolean(name: String, default: Boolean): Boolean = this?.path(name)?.asBoolean(default) ?: default
     private fun JsonNode?.int(name: String, default: Int): Int = this?.path(name)?.asInt(default) ?: default
-    private fun JsonNode?.text(name: String): String? = this?.path(name)?.asText()?.takeIf(String::isNotBlank)
+    private fun JsonNode?.text(name: String): String? = this?.path(name)?.asString()?.takeIf(String::isNotBlank)
     private fun JsonNode.firstText(vararg names: String): String? = names.firstNotNullOfOrNull { name -> text(name) }
 
     private data class Context(

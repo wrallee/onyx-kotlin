@@ -53,10 +53,10 @@ class FileStorageService(
         val locations = connector.connectorSpecificConfig?.path("file_locations") ?: mapper.createArrayNode()
         val names = connector.connectorSpecificConfig?.path("file_names") ?: mapper.createArrayNode()
         val files = locations.mapIndexed { index, location ->
-            val asset = fileAssets.findById(location.asText()).orElse(null)
+            val asset = fileAssets.findById(location.asString()).orElse(null)
             mapOf(
-                "file_id" to location.asText(),
-                "file_name" to (asset?.originalName ?: names.get(index)?.asText() ?: location.asText()),
+                "file_id" to location.asString(),
+                "file_name" to (asset?.originalName ?: names.get(index)?.asString() ?: location.asString()),
                 "file_size" to asset?.byteSize,
                 "upload_date" to asset?.createdAt,
             )
@@ -77,13 +77,13 @@ class FileStorageService(
         val config = ((connector.connectorSpecificConfig ?: mapper.createObjectNode()).deepCopy() as ObjectNode)
         val currentNames = config.withArray("file_names")
         val currentFiles = config.withArray("file_locations").mapIndexed { index, location ->
-            location.asText() to (currentNames.get(index)?.asText() ?: location.asText())
+            location.asString() to (currentNames.get(index)?.asString() ?: location.asString())
         }.filterNot { (id) -> id in idsToRemove }.toMutableList()
         val uploaded = storeUploads(newFiles.filterNot(MultipartFile::isEmpty))
         val added = uploaded.assets
         currentFiles += added.map { it.id to it.originalName }
         val metadataId = mergeMetadata(
-            config.path("zip_metadata_file_id").asText().takeIf(String::isNotBlank),
+            config.path("zip_metadata_file_id").asString().takeIf(String::isNotBlank),
             uploaded.metadataId,
             currentFiles.map { it.second }.toSet(),
         )
@@ -231,7 +231,7 @@ class FileStorageService(
     private fun readMetadata(assetId: String): Map<String, Any?> {
         val node = Files.newInputStream(filePath(assetId)).use(mapper::readTree)
         return when {
-            node.isArray -> node.mapNotNull { entry -> entry.path("filename").asText().takeIf(String::isNotBlank)?.let { it to entry } }.toMap()
+            node.isArray -> node.mapNotNull { entry -> entry.path("filename").asString().takeIf(String::isNotBlank)?.let { it to entry } }.toMap()
             node.isObject -> node.properties().asSequence().associate { it.key to it.value }
             else -> emptyMap()
         }
