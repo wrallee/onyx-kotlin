@@ -585,11 +585,6 @@ data class SearchCandidate(
     val retrievalScore: Double,
 )
 
-data class SearchCandidateResults(
-    val keyword: List<SearchCandidate>,
-    val vector: List<SearchCandidate>,
-)
-
 internal val DOCUMENT_SET_UPDATE_TIMEOUT: Duration = Duration.ofSeconds(30)
 internal val OPENSEARCH_TIMEOUT: Duration = Duration.ofSeconds(30)
 internal val OPENSEARCH_MIGRATION_TIMEOUT: Duration = Duration.ofMinutes(10)

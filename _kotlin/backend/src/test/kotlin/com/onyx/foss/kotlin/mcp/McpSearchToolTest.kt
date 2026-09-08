@@ -231,6 +231,27 @@ class McpSearchToolTest {
     }
 
     @Test
+    fun `fusion keeps results without complete chunk identity independently`() {
+        val realSearch = SearchService(
+            SearchProperties(),
+            mock(ModelServerClient::class.java),
+            mock(OpenSearchIndexer::class.java),
+            mock(DocumentSetRepository::class.java),
+        )
+        val fusionTool = McpSearchTool(realSearch, jacksonObjectMapper())
+        val results = listOf(
+            mapOf("sourceDocumentId" to "doc-1", "title" to "First"),
+            mapOf("sourceDocumentId" to "doc-1", "title" to "Second"),
+        )
+
+        val result = fusionTool.callFusion(mapOf("ranked_results" to listOf(results)))
+
+        @Suppress("UNCHECKED_CAST")
+        val content = result.structuredContent() as Map<String, List<Map<String, Any?>>>
+        assertThat(content.getValue("results").map { it["title"] }).containsExactly("First", "Second")
+    }
+
+    @Test
     fun `fusion schema leaves k default to server configuration`() {
         @Suppress("UNCHECKED_CAST")
         val properties = McpSearchTool.FUSION_INPUT_SCHEMA["properties"] as Map<String, Any>

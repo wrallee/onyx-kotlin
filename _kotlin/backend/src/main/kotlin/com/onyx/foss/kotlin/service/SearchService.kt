@@ -70,7 +70,7 @@ class SearchService(
     fun <T> weightedReciprocalRankFusion(
         rankedResults: List<List<T>>,
         weights: List<Double>,
-        idExtractor: (T) -> String,
+        idExtractor: (T) -> String?,
         k: Int = searchProperties.rrfK,
     ): List<T> {
         require(rankedResults.size == weights.size) {
@@ -79,16 +79,19 @@ class SearchService(
         require(k > 0) { "RRF k must be positive" }
         require(weights.all { it >= 0.0 }) { "RRF weights must be non-negative" }
 
-        val rrfScores = mutableMapOf<String, Double>()
-        val idToItem = mutableMapOf<String, T>()
-        val idToSourceIndex = mutableMapOf<String, Int>()
-        val idToSourceRank = mutableMapOf<String, Int>()
+        data class FusionKey(val id: String?, val sourceIndex: Int = -1, val rank: Int = -1)
+
+        val rrfScores = mutableMapOf<FusionKey, Double>()
+        val idToItem = mutableMapOf<FusionKey, T>()
+        val idToSourceIndex = mutableMapOf<FusionKey, Int>()
+        val idToSourceRank = mutableMapOf<FusionKey, Int>()
 
         rankedResults.forEachIndexed { sourceIdx, resultList ->
             val weight = weights[sourceIdx]
             resultList.forEachIndexed { index, item ->
                 val rank = index + 1
-                val itemId = idExtractor(item)
+                val itemId = idExtractor(item)?.let { FusionKey(it) }
+                    ?: FusionKey(id = null, sourceIndex = sourceIdx, rank = rank)
                 rrfScores[itemId] = (rrfScores[itemId] ?: 0.0) + (weight / (k + rank))
                 if (itemId !in idToItem) {
                     idToItem[itemId] = item
@@ -99,7 +102,7 @@ class SearchService(
         }
 
         return rrfScores.keys.sortedWith(
-            compareByDescending<String> { rrfScores[it] ?: 0.0 }
+            compareByDescending<FusionKey> { rrfScores[it] ?: 0.0 }
                 .thenBy { idToSourceRank[it] ?: Int.MAX_VALUE }
                 .thenBy { idToSourceIndex[it] ?: Int.MAX_VALUE },
         ).map { idToItem.getValue(it) }

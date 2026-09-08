@@ -1,7 +1,8 @@
 # Onyx FOSS Kotlin port
 
 This branch keeps the approved local FOSS admin UI and Kotlin management backend,
-and uses a Python 3.13 model-server for both embedding and reranking.
+and uses a Python 3.13 model-server for embedding. OpenSearch performs hybrid
+score fusion.
 
 ## Supported scope
 
@@ -28,12 +29,9 @@ directory:
 
 See `MODELS.md` for revisions and SHA-256 values.
 
-The Python service runs Granite INT8 through the OpenVINO Python API and GTE
-through its pinned PyTorch custom model code. It exposes the existing Onyx
-embedding and cross-encoder endpoints. The Kotlin backend can submit candidate
-arrays to `/manage/search/rerank`; it sorts by returned scores and preserves the
-retrieval order if the reranker is unavailable. BGE remains selectable through
-`RERANKER_MODEL` and `RERANKER_MODEL_PATH`.
+The Python service runs Granite INT8 through the OpenVINO Python API. The current
+model-server and Kotlin search do not expose or call a reranker. The optional GTE
+and BGE artifacts remain available for evaluation.
 
 ## Run
 
@@ -41,7 +39,7 @@ Download the pinned Granite artifact, then create the local environment file and
 
 ```bash
 cd _kotlin
-python3 scripts/download_models.py --with-rerankers
+python3 scripts/download_models.py
 cp .env.example .env
 openssl rand -base64 32
 # Set ONYX_CREDENTIAL_ENCRYPTION_KEY and a strong OPENSEARCH_ADMIN_PASSWORD in .env.
@@ -98,9 +96,9 @@ directly.
 ```
 
 The `search` tool accepts an optional `document_sets` array. It searches the
-union of those sets. It retrieves 50 keyword and vector candidates by default,
-then reranks at most 30. Set `ONYX_SEARCH_CANDIDATES` and
-`ONYX_SEARCH_RERANK_CANDIDATES` to change these values.
+union of those sets. Hybrid search retrieves 200 keyword and vector candidates
+by default, then OpenSearch normalizes and combines their scores. Set
+`ONYX_SEARCH_CANDIDATES` to change the candidate depth.
 
 Delete the existing OpenSearch index before this version is deployed. The
 application does not delete it. It rejects an incompatible embedding mapping

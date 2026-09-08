@@ -133,10 +133,10 @@ class McpSearchTool(
             .build()
     }
 
-    private fun extractItemId(item: Map<String, Any?>): String {
-        val docId = extractDocumentId(item) ?: item["id"] ?: item["link"] ?: item.hashCode().toString()
-        val chunkId = extractChunkId(item) ?: ""
-        return "${docId}_$chunkId"
+    private fun extractItemId(item: Map<String, Any?>): String? {
+        val documentId = extractDocumentId(item)?.takeIf(String::isNotBlank) ?: return null
+        val chunkId = extractChunkId(item)?.takeIf { it >= 0 } ?: return null
+        return "${documentId}_$chunkId"
     }
 
     private fun extractDocumentId(item: Map<String, Any?>): String? =
@@ -274,4 +274,3 @@ coverage for each subquestion instead."""
         )
     }
 }
-
