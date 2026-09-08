@@ -41,8 +41,8 @@ class MinMaxNormalizationPipelineTest {
 
                 val processor = mapper.readTree(request.body.readUtf8())
                     .path("phase_results_processors").get(0).path("normalization-processor")
-                assertThat(processor.path("normalization").path("technique").asText()).isEqualTo("min_max")
-                assertThat(processor.path("combination").path("technique").asText()).isEqualTo("arithmetic_mean")
+                assertThat(processor.path("normalization").path("technique").asString()).isEqualTo("min_max")
+                assertThat(processor.path("combination").path("technique").asString()).isEqualTo("arithmetic_mean")
                 assertThat(
                     processor.path("combination").path("parameters").path("weights")
                         .toList().map { it.asFloat() },

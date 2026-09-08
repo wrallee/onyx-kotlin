@@ -37,8 +37,8 @@ class ModelServerClientTest {
             val request = server.takeRequest()
             val body = jacksonObjectMapper().readTree(request.body.readUtf8())
             assertThat(request.path).isEqualTo("/encoder/bi-encoder-embed")
-            assertThat(body.path("texts").toList().map{ it.asText() }).containsExactly("search terms")
-            assertThat(body.path("text_type").asText()).isEqualTo("query")
+            assertThat(body.path("texts").toList().map{ it.asString() }).containsExactly("search terms")
+            assertThat(body.path("text_type").asString()).isEqualTo("query")
         }
     }
     @Test

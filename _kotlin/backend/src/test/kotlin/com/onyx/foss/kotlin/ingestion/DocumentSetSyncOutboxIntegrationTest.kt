@@ -415,11 +415,11 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
 
     private fun sourceIds(request: okhttp3.mockwebserver.RecordedRequest): List<String> = mapper
         .readTree(request.body.clone().readUtf8())
-        .path("query").path("bool").path("filter").get(1).path("terms").path("source_document_id").toList().map{ it.asText() }
+        .path("query").path("bool").path("filter").get(1).path("terms").path("source_document_id").toList().map{ it.asString() }
 
     private fun documentSetNames(request: okhttp3.mockwebserver.RecordedRequest): List<String> = mapper
         .readTree(request.body.clone().readUtf8())
-        .path("script").path("params").path("document_sets").toList().map{ it.asText() }
+        .path("script").path("params").path("document_sets").toList().map{ it.asString() }
 
     companion object {
         private val server = MockWebServer().apply { start() }

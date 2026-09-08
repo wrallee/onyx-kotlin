@@ -144,7 +144,7 @@ class SearchService(
             }
 
             sorted.forEach { chunk ->
-                if (previousChunkId != null && chunk.chunkId > previousChunkId!! + 1) {
+                if (previousChunkId != null && chunk.chunkId > previousChunkId + 1) {
                     keepRun()
                 }
                 run += chunk

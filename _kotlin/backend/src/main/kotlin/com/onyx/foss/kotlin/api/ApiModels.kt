@@ -56,7 +56,7 @@ data class DeletionAttemptRequest(
 
 data class RunConnectorRequest(
     val connectorId: Long,
-    @JsonAlias("credentialIds") val credentialIds: List<Long>? = null,
+    @param:JsonAlias("credentialIds") val credentialIds: List<Long>? = null,
     val fromBeginning: Boolean = false,
 )
 
@@ -70,7 +70,7 @@ data class DocumentSetRequest(
     val id: Long? = null,
     @field:NotBlank val name: String,
     val description: String = "",
-    @JsonAlias("cc_pair_ids") val ccPairIds: List<Long> = emptyList(),
+    @param:JsonAlias("cc_pair_ids") val ccPairIds: List<Long> = emptyList(),
     val isPublic: Boolean = true,
     val users: List<String> = emptyList(),
     val groups: List<Long> = emptyList(),

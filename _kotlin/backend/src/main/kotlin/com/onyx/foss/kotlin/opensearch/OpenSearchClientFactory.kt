@@ -49,9 +49,12 @@ object OpenSearchClientFactory {
         val builder = ApacheHttpClient5TransportBuilder.builder(httpHost)
             .setMapper(mapper)
 
+        builder.setConnectionConfigCallback { connectionConfigBuilder ->
+            connectionConfigBuilder.setConnectTimeout(Timeout.ofMilliseconds(DEFAULT_CONNECT_TIMEOUT.toMillis()))
+        }
+
         builder.setRequestConfigCallback { requestConfigBuilder ->
             requestConfigBuilder
-                .setConnectTimeout(Timeout.ofMilliseconds(DEFAULT_CONNECT_TIMEOUT.toMillis()))
                 .setResponseTimeout(Timeout.ofMilliseconds(DEFAULT_SOCKET_TIMEOUT.toMillis()))
         }
 
@@ -63,9 +66,14 @@ object OpenSearchClientFactory {
                 val tlsStrategy = ClientTlsStrategyBuilder.create()
                     .setSslContext(sslContext)
                     .setHostnameVerifier(NoopHostnameVerifier.INSTANCE)
-                    .build()
+                    .buildAsync()
                 val cm = PoolingAsyncClientConnectionManagerBuilder.create()
                     .setTlsStrategy(tlsStrategy)
+                    .setDefaultConnectionConfig(
+                        org.apache.hc.client5.http.config.ConnectionConfig.custom()
+                            .setConnectTimeout(Timeout.ofMilliseconds(DEFAULT_CONNECT_TIMEOUT.toMillis()))
+                            .build()
+                    )
                     .build()
                 httpClientBuilder.setConnectionManager(cm)
             }

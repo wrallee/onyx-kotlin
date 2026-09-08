@@ -11,7 +11,6 @@ import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
 import org.opensearch.client.opensearch.OpenSearchClient
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import io.netty.handler.ssl.SslContextBuilder
-import io.netty.handler.ssl.util.SelfSignedCertificate
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -72,11 +71,11 @@ class OpenSearchIndexerTest {
             assertThat(keyword.path("size").asInt()).isEqualTo(30)
             assertThat(keyword.path("query").path("bool").path("filter").first()
                 .path("bool").path("filter").first().path("terms").path("document_sets")
-                .toList().map { it.asText() })
+                .toList().map { it.asString() })
                 .containsExactly("Engineering", "Operations")
             val vectorFilter = vector.path("query").path("knn").path("embedding").path("filter")
                 .path("bool").path("filter").first().path("terms").path("document_sets")
-                .toList().map { it.asText() }
+                .toList().map { it.asString() }
             assertThat(vectorFilter).containsExactly("Engineering", "Operations")
             assertThat(keywordResults.single().id).isEqualTo("keyword")
             assertThat(vectorResults.single().id).isEqualTo("vector")
@@ -106,9 +105,9 @@ class OpenSearchIndexerTest {
             val filters = keyword.path("query").path("bool").path("filter").first()
                 .path("bool").path("filter").toList()
             assertThat(filters.map { it.path("terms").path("source_type") }.filter { !it.isMissingNode }
-                .single().toList().map { it.asText() }).containsExactly("jira", "github")
+                .single().toList().map { it.asString() }).containsExactly("jira", "github")
             assertThat(filters.map { it.path("range").path("doc_updated_at").path("gte") }
-                .filter { !it.isMissingNode }.single().asText()).isEqualTo("2026-01-01T00:00:00Z")
+                .filter { !it.isMissingNode }.single().asString()).isEqualTo("2026-01-01T00:00:00Z")
         }
     }
 
@@ -162,7 +161,7 @@ class OpenSearchIndexerTest {
                 assertThat(hybrid.path("queries").get(1).path("knn").path("embedding").path("k").asInt())
                     .isEqualTo(200)
                 assertThat(hybrid.path("filter").path("bool").path("filter").first()
-                    .path("terms").path("document_sets").toList().map { it.asText() })
+                    .path("terms").path("document_sets").toList().map { it.asString() })
                     .containsExactly("Engineering")
                 assertThat(results.single().id).isEqualTo("hybrid")
             }
@@ -220,10 +219,10 @@ class OpenSearchIndexerTest {
             assertThat(create.path).isEqualTo("/documents")
             val knnSetting = body.path("settings").let { if (it.has("index")) it.path("index").path("knn") else it.path("knn") }
             assertThat(knnSetting.asBoolean()).isTrue()
-            assertThat(embedding.path("type").asText()).isEqualTo("knn_vector")
+            assertThat(embedding.path("type").asString()).isEqualTo("knn_vector")
             assertThat(embedding.path("dimension").asInt()).isEqualTo(768)
-            assertThat(embedding.path("method").path("engine").asText()).isEqualTo("lucene")
-            assertThat(embedding.path("method").path("space_type").asText()).isEqualTo("cosinesimil")
+            assertThat(embedding.path("method").path("engine").asString()).isEqualTo("lucene")
+            assertThat(embedding.path("method").path("space_type").asString()).isEqualTo("cosinesimil")
         }
     }
 
@@ -242,7 +241,7 @@ class OpenSearchIndexerTest {
 
             val request = takeOperationRequest(server)
             val body = mapper.readTree(request.body.readUtf8())
-            assertThat(body.path("source_type").asText()).isEqualTo("jira")
+            assertThat(body.path("source_type").asString()).isEqualTo("jira")
         }
     }
 
@@ -267,8 +266,9 @@ class OpenSearchIndexerTest {
     }
 
     @Test
+    @Suppress("DEPRECATION")
     fun `accepts self-signed OpenSearch certificate when verification is disabled`() {
-        val certificate = SelfSignedCertificate("localhost")
+        val certificate = io.netty.handler.ssl.util.SelfSignedCertificate("localhost")
         val server = HttpServer.create()
             .host("localhost")
             .port(0)
@@ -324,7 +324,7 @@ class OpenSearchIndexerTest {
             assertThat(requestUrl.queryParameter("refresh")).isEqualTo("true")
             assertThat(body.path("query").path("bool").path("filter").first().path("term").path("cc_pair_id").termValue())
                 .isEqualTo(7)
-            assertThat(body.path("query").path("bool").path("filter").path(1).path("terms").path("source_document_id").toList().map{ it.asText() })
+            assertThat(body.path("query").path("bool").path("filter").path(1).path("terms").path("source_document_id").toList().map{ it.asString() })
                 .containsExactlyInAnyOrder("one", "two")
         }
     }
@@ -347,12 +347,12 @@ class OpenSearchIndexerTest {
             val requestUrl = request.requestUrl ?: server.url(request.path ?: "")
             assertThat(requestUrl.encodedPath).isEqualTo("/documents/_update_by_query")
             assertThat(requestUrl.queryParameter("refresh")).isEqualTo("true")
-            assertThat(requestUrl.queryParameter("conflicts") ?: body.path("conflicts").asText()).isEqualTo("proceed")
+            assertThat(requestUrl.queryParameter("conflicts") ?: body.path("conflicts").asString()).isEqualTo("proceed")
             assertThat(body.path("query").path("bool").path("filter").first().path("term").path("cc_pair_id").termValue())
                 .isEqualTo(7)
-            assertThat(body.path("query").path("bool").path("filter").path(1).path("terms").path("source_document_id").toList().map{ it.asText() })
+            assertThat(body.path("query").path("bool").path("filter").path(1).path("terms").path("source_document_id").toList().map{ it.asString() })
                 .containsExactlyInAnyOrder("one", "two")
-            assertThat(body.path("script").path("params").path("document_sets").toList().map{ it.asText() })
+            assertThat(body.path("script").path("params").path("document_sets").toList().map{ it.asString() })
                 .containsExactly("first", "second")
         }
     }
@@ -412,9 +412,9 @@ class OpenSearchIndexerTest {
             val mappingRequest = server.takeRequest()
             val mapping = mapper.readTree(mappingRequest.body.readUtf8()).path("properties")
             assertThat(mappingRequest.path).isEqualTo("/documents/_mapping")
-            assertThat(mapping.path("doc_updated_at").path("type").asText()).isEqualTo("date")
-            assertThat(mapping.path("primary_owners").path("type").asText()).isEqualTo("keyword")
-            assertThat(mapping.path("secondary_owners").path("type").asText()).isEqualTo("keyword")
+            assertThat(mapping.path("doc_updated_at").path("type").asString()).isEqualTo("date")
+            assertThat(mapping.path("primary_owners").path("type").asString()).isEqualTo("keyword")
+            assertThat(mapping.path("secondary_owners").path("type").asString()).isEqualTo("keyword")
         }
     }
 
@@ -579,5 +579,5 @@ class OpenSearchIndexerTest {
     }
 
     private fun JsonNode.termValue(): Long = if (this.isObject) this.path("value").asLong() else this.asLong()
-    private fun JsonNode.termString(): String = if (this.isObject) this.path("value").asText() else this.asText()
+    private fun JsonNode.termString(): String = if (this.isObject) this.path("value").asString() else this.asString()
 }

@@ -50,6 +50,6 @@ class ConnectorModelsTest {
         val restored = mapper.readValue(mapper.writeValueAsString(checkpoint), ConnectorCheckpoint::class.java)
 
         assertTrue(restored.hasMore)
-        assertEquals("next-page", restored.value.path("cursor").asText())
+        assertEquals("next-page", restored.value.path("cursor").asString())
     }
 }

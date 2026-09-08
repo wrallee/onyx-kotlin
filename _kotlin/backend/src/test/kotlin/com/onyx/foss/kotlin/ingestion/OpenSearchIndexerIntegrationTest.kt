@@ -63,7 +63,7 @@ class OpenSearchIndexerIntegrationTest {
     @AfterEach
     fun deleteIndex() {
         get("/_cat/indices/$index*?format=json").forEach { row ->
-            client.delete().uri("$baseUrl/${row.path("index").asText()}")
+            client.delete().uri("$baseUrl/${row.path("index").asString()}")
                 .retrieve().toBodilessEntity().block(Duration.ofSeconds(30))
         }
     }
@@ -93,19 +93,19 @@ class OpenSearchIndexerIntegrationTest {
         indexer.deleteDocuments(7, setOf(fileId))
 
         val mapping = get("/$index/_mapping")
-        assertThat(mapping.path(index).path("mappings").path("properties").path("source_document_id").path("type").asText())
+        assertThat(mapping.path(index).path("mappings").path("properties").path("source_document_id").path("type").asString())
             .isEqualTo("keyword")
-        assertThat(mapping.path(index).path("mappings").path("properties").path("doc_updated_at").path("type").asText())
+        assertThat(mapping.path(index).path("mappings").path("properties").path("doc_updated_at").path("type").asString())
             .isEqualTo("date")
-        assertThat(mapping.path(index).path("mappings").path("properties").path("primary_owners").path("type").asText())
+        assertThat(mapping.path(index).path("mappings").path("properties").path("primary_owners").path("type").asString())
             .isEqualTo("keyword")
         val urlDocument = exactDocuments(urlId).single()
-        assertThat(urlDocument.path("external_user_emails").toList().map(JsonNode::asText)).isEmpty()
+        assertThat(urlDocument.path("external_user_emails").toList().map(JsonNode::asString)).isEmpty()
         assertThat(urlDocument.path("is_public").asBoolean()).isTrue()
-        assertThat(urlDocument.path("document_sets").toList().map(JsonNode::asText)).containsExactly("Engineering")
-        assertThat(urlDocument.path("doc_updated_at").asText()).isEqualTo(updatedAt.toString())
-        assertThat(urlDocument.path("primary_owners").toList().map(JsonNode::asText)).containsExactly("owner@example.com")
-        assertThat(urlDocument.path("secondary_owners").toList().map(JsonNode::asText)).containsExactly("reviewer@example.com")
+        assertThat(urlDocument.path("document_sets").toList().map(JsonNode::asString)).containsExactly("Engineering")
+        assertThat(urlDocument.path("doc_updated_at").asString()).isEqualTo(updatedAt.toString())
+        assertThat(urlDocument.path("primary_owners").toList().map(JsonNode::asString)).containsExactly("owner@example.com")
+        assertThat(urlDocument.path("secondary_owners").toList().map(JsonNode::asString)).containsExactly("reviewer@example.com")
         assertThat(exactDocuments(fileId)).isEmpty()
     }
 
@@ -119,7 +119,7 @@ class OpenSearchIndexerIntegrationTest {
         indexer.upsert(7, documentId, 0, "New", "new content", documentId, emptyMap(), vector(0.3))
         indexer.deleteStaleChunks(7, documentId, 1)
 
-        assertThat(exactDocuments(documentId).map { it.path("content").asText() }).containsExactly("new content")
+        assertThat(exactDocuments(documentId).map { it.path("content").asString() }).containsExactly("new content")
     }
 
     @Test
@@ -170,8 +170,8 @@ class OpenSearchIndexerIntegrationTest {
             .path("phase_results_processors").get(0).path("normalization-processor")
         val zScore = get("/_search/pipeline/$zScoreId").path(zScoreId)
             .path("phase_results_processors").get(0).path("normalization-processor")
-        assertThat(minMax.path("normalization").path("technique").asText()).isEqualTo("min_max")
-        assertThat(zScore.path("normalization").path("technique").asText()).isEqualTo("z_score")
+        assertThat(minMax.path("normalization").path("technique").asString()).isEqualTo("min_max")
+        assertThat(zScore.path("normalization").path("technique").asString()).isEqualTo("z_score")
         assertThat(minMax.path("combination").path("parameters").path("weights").toList().map { it.asDouble() })
             .isEqualTo(listOf(0.5, 0.5))
 
@@ -192,16 +192,16 @@ class OpenSearchIndexerIntegrationTest {
         val fileId = "FILE_CONNECTOR__file-123"
         putRawDocument("legacy-url", urlId, "url content")
         putRawDocument("legacy-file", fileId, "file content")
-        assertThat(mappingProperties().path("source_document_id").path("type").asText()).isEqualTo("text")
+        assertThat(mappingProperties().path("source_document_id").path("type").asString()).isEqualTo("text")
 
         val indexer = indexer()
         indexer.updateDocumentSets(7, setOf(urlId, fileId), listOf("Engineering"))
         indexer.deleteDocuments(7, setOf(fileId))
 
-        assertThat(mappingProperties().path("source_document_id").path("type").asText()).isEqualTo("keyword")
+        assertThat(mappingProperties().path("source_document_id").path("type").asString()).isEqualTo("keyword")
         val urlDocument = exactDocuments(urlId).single()
-        assertThat(urlDocument.path("content").asText()).isEqualTo("url content")
-        assertThat(urlDocument.path("document_sets").toList().map(JsonNode::asText)).containsExactly("Engineering")
+        assertThat(urlDocument.path("content").asString()).isEqualTo("url content")
+        assertThat(urlDocument.path("document_sets").toList().map(JsonNode::asString)).containsExactly("Engineering")
         assertThat(exactDocuments(fileId)).isEmpty()
     }
 
@@ -254,9 +254,9 @@ class OpenSearchIndexerIntegrationTest {
             }
         }
 
-        assertThat(exactDocuments(legacyId).single().path("document_sets").toList().map(JsonNode::asText))
+        assertThat(exactDocuments(legacyId).single().path("document_sets").toList().map(JsonNode::asString))
             .containsExactly("Engineering")
-        assertThat(exactDocuments(concurrentId).single().path("content").asText()).isEqualTo("concurrent content")
+        assertThat(exactDocuments(concurrentId).single().path("content").asString()).isEqualTo("concurrent content")
     }
 
     @Test
@@ -310,7 +310,7 @@ class OpenSearchIndexerIntegrationTest {
         }
 
         assertThat(reindexCalls.get()).isEqualTo(1)
-        assertThat(exactDocuments(sourceDocumentId).single().path("content").asText())
+        assertThat(exactDocuments(sourceDocumentId).single().path("content").asString())
             .isEqualTo("post-swap content")
     }
 
