@@ -1,0 +1,22 @@
+{
+  "source_path": "/home/wrallee/Workspace/onyx-kotlin/_kotlin/docs/specs/2026-09-07-opensearch-native-hybrid-retrieval-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "OpenSearch Native Hybrid Retrieval Design",
+  "summary": "Defines native OpenSearch hybrid routing, normalization pipelines, search configuration, MCP weighted reciprocal-rank fusion, and adjacent chunk diversity.",
+  "scope": [
+    "OpenSearch",
+    "BM25",
+    "k-NN",
+    "hybrid search",
+    "normalization pipelines",
+    "search configuration",
+    "MCP WRRF",
+    "adjacent chunks"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": 0,
+  "notes": ""
+}

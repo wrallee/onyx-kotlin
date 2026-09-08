@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/wrallee/Workspace/onyx-kotlin/_kotlin/docs/specs/2026-09-02-kotlin-search-mcp-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Kotlin 검색 MCP 설계",
+  "summary": "Defines a shared Kotlin search service and stateless MCP search tool with keyword/vector retrieval, reciprocal-rank fusion, reranking, Document Set filters, and Web proxy transport.",
+  "scope": ["SearchService", "MCP search tool", "query embedding", "OpenSearch", "reciprocal-rank fusion", "reranking", "Document Sets", "Streamable HTTP", "Web proxy", "vector mapping"],
+  "cross_refs": ["SOURCE_PROVENANCE.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

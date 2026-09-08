@@ -1,0 +1,42 @@
+{
+  "source_path": "/home/wrallee/Workspace/onyx-kotlin/_kotlin/docs/model-server-spike.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Model-server porting spike",
+  "summary": "Documents model-server porting feasibility, embedding contracts, runtime parity checks, benchmark gates, licensing, and the implemented Kotlin OpenVINO embedding outcome.",
+  "scope": [
+    "model server",
+    "Kotlin/JVM",
+    "Go",
+    "Python",
+    "OpenVINO",
+    "embedding",
+    "tokenizer",
+    "golden fixtures",
+    "benchmarks",
+    "licensing"
+  ],
+  "cross_refs": [
+    "onyx/natural_language_processing/search_nlp_models.py",
+    "onyx/utils/gpu_utils.py",
+    "modules.json",
+    "LICENSE",
+    "Dockerfile.model_server",
+    "backend/model_server/encoders.py",
+    "backend/model_server/main.py",
+    "management_endpoints.py",
+    "backend/shared_configs/model_server_models.py",
+    "enums.py",
+    "backend/onyx/natural_language_processing/search_nlp_models.py",
+    "backend/shared_configs/configs.py",
+    "backend/onyx/configs/model_configs.py",
+    "backend/Dockerfile.model_server",
+    "deployment/docker_compose/docker-compose.yml",
+    "backend/tests/unit/model_server/test_embedding.py",
+    "backend/tests/airgap/test_default_model_server_embeddings_are_finite.py"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

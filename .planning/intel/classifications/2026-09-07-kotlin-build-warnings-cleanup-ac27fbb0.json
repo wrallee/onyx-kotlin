@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/wrallee/Workspace/onyx-kotlin/_kotlin/docs/plans/2026-09-07-kotlin-build-warnings-cleanup.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Plan: Kotlin Backend Build Warnings Cleanup",
+  "summary": "Plan to remove Kotlin backend compiler and deprecation warnings through Jackson method updates, annotation targets, OpenSearch client configuration changes, and test suppression.",
+  "scope": ["Kotlin backend", "compiler warnings", "Jackson 3", "annotation targets", "Apache HttpClient 5", "OpenSearch Java Client", "SearchService", "Netty test utility"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
