@@ -1,17 +1,17 @@
 package com.onyx.foss.kotlin.service
 
-import tools.jackson.databind.JsonNode
-import com.onyx.foss.kotlin.config.OnyxProperties
+import com.onyx.foss.kotlin.config.SearchProperties
 import com.onyx.foss.kotlin.domain.DocumentSetRepository
 import com.onyx.foss.kotlin.ingestion.ModelServerClient
 import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
 import com.onyx.foss.kotlin.ingestion.SearchCandidate
 import org.springframework.stereotype.Service
+import tools.jackson.databind.JsonNode
 import java.time.Instant
 
 @Service
 class SearchService(
-    private val properties: OnyxProperties,
+    private val searchProperties: SearchProperties,
     private val modelServer: ModelServerClient,
     private val indexer: OpenSearchIndexer,
     private val documentSetRepository: DocumentSetRepository,
@@ -35,64 +35,63 @@ class SearchService(
             require(unknown.isEmpty()) { "Unknown document sets: ${unknown.joinToString()}" }
         }
 
-        val config = properties.modelServer
-        val candidates = indexer.searchCandidates(
-            query,
-            modelServer.embedQuery(query),
-            selectedSets,
-            config.searchCandidates,
-            sourceTypes,
-            timeCutoff,
-        )
-        val fused = when (searchType) {
-            SearchType.HYBRID -> fuse(candidates.keyword, candidates.vector)
-            SearchType.KEYWORD -> {
-                val normKeyword = normalize(candidates.keyword)
-                candidates.keyword.map { it.copy(retrievalScore = normKeyword[it.id] ?: 0.0) }
-                    .sortedWith(compareByDescending<SearchCandidate> { it.retrievalScore ?: 0.0 }.thenBy { it.id })
-            }
-            SearchType.SEMANTIC -> {
-                val normVector = normalize(candidates.vector)
-                candidates.vector.map { it.copy(retrievalScore = normVector[it.id] ?: 0.0) }
-                    .sortedWith(compareByDescending<SearchCandidate> { it.retrievalScore ?: 0.0 }.thenBy { it.id })
-            }
-        }
-        if (fused.isEmpty()) return SearchResponse(emptyList())
-
-        val results = fused.take(limit).map { candidate ->
-            SearchResult(
-                sourceDocumentId = candidate.sourceDocumentId,
-                chunkId = candidate.chunkId,
-                title = candidate.title,
-                content = candidate.content,
-                link = candidate.link,
-                metadata = candidate.metadata,
-                retrievalScore = candidate.retrievalScore,
+        val ranked = when (searchType) {
+            SearchType.KEYWORD -> indexer.keywordSearch(
+                query,
+                selectedSets,
+                limit,
+                sourceTypes,
+                timeCutoff,
+            )
+            SearchType.SEMANTIC -> indexer.vectorSearch(
+                modelServer.embedQuery(query),
+                selectedSets,
+                limit,
+                sourceTypes,
+                timeCutoff,
+            )
+            SearchType.HYBRID -> indexer.hybridSearch(
+                query,
+                modelServer.embedQuery(query),
+                selectedSets,
+                limit,
+                sourceTypes,
+                timeCutoff,
             )
         }
-        return SearchResponse(results = results)
+
+        return SearchResponse(
+            results = ranked.take(limit).map(SearchCandidate::toSearchResult),
+        )
     }
 
-    @JvmOverloads
+    fun defaultRrfK(): Int = searchProperties.rrfK
+
     fun <T> weightedReciprocalRankFusion(
         rankedResults: List<List<T>>,
         weights: List<Double>,
-        idExtractor: (T) -> String,
-        k: Int = DEFAULT_RRF_K,
+        idExtractor: (T) -> String?,
+        k: Int = searchProperties.rrfK,
     ): List<T> {
         require(rankedResults.size == weights.size) {
             "Number of ranked results (${rankedResults.size}) must match number of weights (${weights.size})"
         }
-        val rrfScores = mutableMapOf<String, Double>()
-        val idToItem = mutableMapOf<String, T>()
-        val idToSourceIndex = mutableMapOf<String, Int>()
-        val idToSourceRank = mutableMapOf<String, Int>()
+        require(k > 0) { "RRF k must be positive" }
+        require(weights.all { it >= 0.0 }) { "RRF weights must be non-negative" }
+
+        data class FusionKey(val id: String?, val sourceIndex: Int = -1, val rank: Int = -1)
+
+        val rrfScores = mutableMapOf<FusionKey, Double>()
+        val idToItem = mutableMapOf<FusionKey, T>()
+        val idToSourceIndex = mutableMapOf<FusionKey, Int>()
+        val idToSourceRank = mutableMapOf<FusionKey, Int>()
 
         rankedResults.forEachIndexed { sourceIdx, resultList ->
             val weight = weights[sourceIdx]
             resultList.forEachIndexed { index, item ->
                 val rank = index + 1
-                val itemId = idExtractor(item)
+                val itemId = idExtractor(item)?.let { FusionKey(it) }
+                    ?: FusionKey(id = null, sourceIndex = sourceIdx, rank = rank)
                 rrfScores[itemId] = (rrfScores[itemId] ?: 0.0) + (weight / (k + rank))
                 if (itemId !in idToItem) {
                     idToItem[itemId] = item
@@ -103,37 +102,58 @@ class SearchService(
         }
 
         return rrfScores.keys.sortedWith(
-            compareByDescending<String> { rrfScores[it] ?: 0.0 }
+            compareByDescending<FusionKey> { rrfScores[it] ?: 0.0 }
                 .thenBy { idToSourceRank[it] ?: Int.MAX_VALUE }
                 .thenBy { idToSourceIndex[it] ?: Int.MAX_VALUE },
         ).map { idToItem.getValue(it) }
     }
 
-    private fun fuse(keyword: List<SearchCandidate>, vector: List<SearchCandidate>): List<SearchCandidate> {
-        val normKeyword = normalize(keyword)
-        val normVector = normalize(vector)
-        val sources = linkedMapOf<String, SearchCandidate>()
-        (keyword + vector).forEach { candidate ->
-            sources.putIfAbsent(candidate.id, candidate)
-        }
-        return sources.values.map { candidate ->
-            val kScore = normKeyword[candidate.id] ?: 0.0
-            val vScore = normVector[candidate.id] ?: 0.0
-            candidate.copy(retrievalScore = KEYWORD_WEIGHT * kScore + VECTOR_WEIGHT * vScore)
-        }.sortedWith(compareByDescending<SearchCandidate> { it.retrievalScore ?: 0.0 }.thenBy { it.id })
-    }
+    fun <T> collapseAdjacentChunks(
+        rankedResults: List<T>,
+        documentIdExtractor: (T) -> String?,
+        chunkIdExtractor: (T) -> Int?,
+    ): List<T> {
+        if (rankedResults.size < 2) return rankedResults
 
-    private fun normalize(candidates: List<SearchCandidate>): Map<String, Double> {
-        if (candidates.isEmpty()) return emptyMap()
-        val scores = candidates.mapNotNull { it.retrievalScore }
-        if (scores.isEmpty()) return candidates.associate { it.id to 0.0 }
-        val min = scores.minOrNull() ?: 0.0
-        val max = scores.maxOrNull() ?: 0.0
-        return candidates.associate { candidate ->
-            val score = candidate.retrievalScore ?: 0.0
-            val normalized = if (max == min) 1.0 else (score - min) / (max - min)
-            candidate.id to normalized
+        data class RankedChunk<T>(val rank: Int, val item: T, val chunkId: Int)
+
+        val identifiable = linkedMapOf<String, MutableList<RankedChunk<T>>>()
+        val keepRanks = mutableSetOf<Int>()
+
+        rankedResults.forEachIndexed { rank, item ->
+            val documentId = documentIdExtractor(item)?.takeIf(String::isNotBlank)
+            val chunkId = chunkIdExtractor(item)?.takeIf { it >= 0 }
+            if (documentId == null || chunkId == null) {
+                keepRanks += rank
+            } else {
+                identifiable.getOrPut(documentId) { mutableListOf() }
+                    .add(RankedChunk(rank, item, chunkId))
+            }
         }
+
+        identifiable.values.forEach { chunks ->
+            val sorted = chunks.sortedWith(compareBy<RankedChunk<T>> { it.chunkId }.thenBy { it.rank })
+            var run = mutableListOf<RankedChunk<T>>()
+            var previousChunkId: Int? = null
+
+            fun keepRun() {
+                if (run.isNotEmpty()) {
+                    keepRanks += run.minOf { it.rank }
+                    run = mutableListOf()
+                }
+            }
+
+            sorted.forEach { chunk ->
+                if (previousChunkId != null && chunk.chunkId > previousChunkId!! + 1) {
+                    keepRun()
+                }
+                run += chunk
+                previousChunkId = chunk.chunkId
+            }
+            keepRun()
+        }
+
+        return rankedResults.filterIndexed { rank, _ -> rank in keepRanks }
     }
 
     @JvmOverloads
@@ -157,13 +177,20 @@ class SearchService(
 
     companion object {
         const val MAX_RESULTS = 20
-        const val KEYWORD_WEIGHT = 0.5
-        const val VECTOR_WEIGHT = 0.5
-        const val DEFAULT_RRF_K = 50
         const val DEFAULT_CONTEXT_CHUNKS = 2
         const val MAX_CONTEXT_CHUNKS = 10
     }
 }
+
+private fun SearchCandidate.toSearchResult(): SearchResult = SearchResult(
+    sourceDocumentId = sourceDocumentId,
+    chunkId = chunkId,
+    title = title,
+    content = content,
+    link = link,
+    metadata = metadata,
+    retrievalScore = retrievalScore,
+)
 
 enum class SearchType {
     HYBRID,
@@ -202,4 +229,3 @@ data class SearchResult(
     val metadata: JsonNode,
     val retrievalScore: Double?,
 )
-

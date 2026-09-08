@@ -49,11 +49,16 @@ onyx:
     embedding-dimension: ${ONYX_EMBEDDING_DIMENSION:768}
     max-context-length: ${ONYX_EMBEDDING_MAX_CONTEXT_LENGTH:512}
     normalize-embeddings: ${ONYX_EMBEDDING_NORMALIZE:true}
-    search-candidates: ${ONYX_SEARCH_CANDIDATES:50}
     connect-timeout-ms: ${MODEL_SERVER_CONNECT_TIMEOUT_MS:30000}
     read-timeout-ms: ${MODEL_SERVER_READ_TIMEOUT_MS:600000}
     embed-max-retries: ${ONYX_EMBED_MAX_RETRIES:2}
     embed-retry-initial-backoff-ms: ${ONYX_EMBED_RETRY_INITIAL_BACKOFF_MS:2000}
+  search:
+    hybrid-candidates: ${ONYX_SEARCH_CANDIDATES:200}
+    hybrid-normalization: ${ONYX_HYBRID_NORMALIZATION:min_max}
+    keyword-weight: ${ONYX_HYBRID_KEYWORD_WEIGHT:0.5}
+    vector-weight: ${ONYX_HYBRID_VECTOR_WEIGHT:0.5}
+    rrf-k: ${ONYX_RRF_K:50}
   scheduler:
     poll-delay-ms: ${ONYX_SCHEDULER_POLL_DELAY_MS:15000}
   worker:

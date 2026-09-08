@@ -3,7 +3,12 @@ package com.onyx.foss.kotlin.ingestion
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.SerializationFeature
 import tools.jackson.module.kotlin.jacksonObjectMapper
+import com.onyx.foss.kotlin.config.SearchProperties
+import com.onyx.foss.kotlin.opensearch.HybridNormalizationPipelineRegistry
+import com.onyx.foss.kotlin.opensearch.MinMaxNormalizationPipeline
+import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory
 import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
+import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
 import io.netty.handler.ssl.SslContextBuilder
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory
 import okhttp3.mockwebserver.Dispatcher
@@ -118,23 +123,67 @@ class OpenSearchIndexerIntegrationTest {
     }
 
     @Test
-    fun candidateSearchUsesTheUnionOfSelectedDocumentSets() {
+    fun keywordAndVectorSearchUseTheUnionOfSelectedDocumentSets() {
         val indexer = indexer()
         indexer.upsert(7, "engineering", 0, "Guide", "deployment needle", null, emptyMap(), vector(0.1), listOf("Engineering"))
         indexer.upsert(7, "operations", 0, "Guide", "deployment needle", null, emptyMap(), vector(0.2), listOf("Operations"))
         indexer.upsert(7, "finance", 0, "Guide", "deployment needle", null, emptyMap(), vector(0.3), listOf("Finance"))
 
-        val results = indexer.searchCandidates(
+        val keyword = indexer.keywordSearch(
             "deployment needle",
+            listOf("Engineering", "Operations"),
+            10,
+        )
+        val vector = indexer.vectorSearch(
             vector(0.1),
             listOf("Engineering", "Operations"),
             10,
         )
 
-        assertThat(results.keyword.map(SearchCandidate::sourceDocumentId))
+        assertThat(keyword.map(SearchCandidate::sourceDocumentId))
             .containsExactlyInAnyOrder("engineering", "operations")
-        assertThat(results.vector.map(SearchCandidate::sourceDocumentId))
+        assertThat(vector.map(SearchCandidate::sourceDocumentId))
             .containsExactlyInAnyOrder("engineering", "operations")
+    }
+
+    @Test
+    fun nativeHybridSearchCreatesBothPipelinesAndReturnsOnlyRequestedLimit() {
+        val writer = indexer()
+        writer.upsert(7, "engineering-a", 0, "Deployment Guide", "deployment needle alpha", null, emptyMap(), vector(0.1), listOf("Engineering"))
+        writer.upsert(7, "engineering-b", 0, "Deployment Guide", "deployment needle beta", null, emptyMap(), vector(0.2), listOf("Engineering"))
+        writer.upsert(7, "finance", 0, "Deployment Guide", "deployment needle finance", null, emptyMap(), vector(0.3), listOf("Finance"))
+
+        val indexer = hybridIndexer(SearchProperties(hybridCandidates = 200))
+        val results = indexer.hybridSearch(
+            query = "deployment needle",
+            queryEmbedding = vector(0.1),
+            documentSets = listOf("Engineering"),
+            limit = 1,
+        )
+
+        assertThat(results).hasSize(1)
+        assertThat(results.single().sourceDocumentId).isIn("engineering-a", "engineering-b")
+
+        val minMaxId = "$index-hybrid-min-max"
+        val zScoreId = "$index-hybrid-z-score"
+        val minMax = get("/_search/pipeline/$minMaxId").path(minMaxId)
+            .path("phase_results_processors").get(0).path("normalization-processor")
+        val zScore = get("/_search/pipeline/$zScoreId").path(zScoreId)
+            .path("phase_results_processors").get(0).path("normalization-processor")
+        assertThat(minMax.path("normalization").path("technique").asText()).isEqualTo("min_max")
+        assertThat(zScore.path("normalization").path("technique").asText()).isEqualTo("z_score")
+        assertThat(minMax.path("combination").path("parameters").path("weights").toList().map { it.asDouble() })
+            .isEqualTo(listOf(0.5, 0.5))
+
+        val zScoreResults = hybridIndexer(
+            SearchProperties(hybridCandidates = 200, hybridNormalization = "z_score"),
+        ).hybridSearch(
+            query = "deployment needle",
+            queryEmbedding = vector(0.1),
+            documentSets = listOf("Engineering"),
+            limit = 1,
+        )
+        assertThat(zScoreResults).hasSize(1)
     }
 
     @Test
@@ -296,6 +345,31 @@ class OpenSearchIndexerIntegrationTest {
         mapper,
         externalWrites,
     )
+
+    private fun hybridIndexer(searchProperties: SearchProperties): OpenSearchIndexer {
+        val properties = OpenSearchVectorStoreProperties(
+            uris = listOf(baseUrl),
+            indexName = index,
+            username = ADMIN_USERNAME,
+            password = ADMIN_PASSWORD,
+            ssl = OpenSearchVectorStoreProperties.Ssl(verifyCerts = false),
+        )
+        val openSearchClient = OpenSearchClientFactory.createClient(properties, mapper)
+        val registry = HybridNormalizationPipelineRegistry(
+            MinMaxNormalizationPipeline(openSearchClient, properties, searchProperties),
+            ZScoreNormalizationPipeline(openSearchClient, properties, searchProperties, mapper),
+            searchProperties,
+        )
+        return OpenSearchIndexer(
+            properties,
+            openSearchClient,
+            mapper,
+            externalWrites,
+            768,
+            searchProperties,
+            registry,
+        )
+    }
 
     private fun exactDocuments(sourceDocumentId: String): List<JsonNode> = client.post()
         .uri("$baseUrl/$index/_search")

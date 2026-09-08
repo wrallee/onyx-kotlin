@@ -107,13 +107,18 @@ class McpSearchTool(
             List(rankedResults.size) { 1.0 }
         }
 
-        val k = (arguments["k"] as? Number)?.toInt() ?: SearchService.DEFAULT_RRF_K
+        val k = (arguments["k"] as? Number)?.toInt() ?: search.defaultRrfK()
 
-        val merged = search.weightedReciprocalRankFusion(
+        val fused = search.weightedReciprocalRankFusion(
             rankedResults = rankedResults,
             weights = weights,
             idExtractor = { item -> extractItemId(item) },
             k = k,
+        )
+        val merged = search.collapseAdjacentChunks(
+            fused,
+            documentIdExtractor = ::extractDocumentId,
+            chunkIdExtractor = ::extractChunkId,
         )
 
         val response = mapOf("results" to merged)
@@ -128,10 +133,19 @@ class McpSearchTool(
             .build()
     }
 
-    private fun extractItemId(item: Map<String, Any?>): String {
-        val docId = item["sourceDocumentId"] ?: item["source_document_id"] ?: item["id"] ?: item["link"] ?: item.hashCode().toString()
-        val chunkId = item["chunkId"] ?: item["chunk_id"] ?: ""
-        return "${docId}_$chunkId"
+    private fun extractItemId(item: Map<String, Any?>): String? {
+        val documentId = extractDocumentId(item)?.takeIf(String::isNotBlank) ?: return null
+        val chunkId = extractChunkId(item)?.takeIf { it >= 0 } ?: return null
+        return "${documentId}_$chunkId"
+    }
+
+    private fun extractDocumentId(item: Map<String, Any?>): String? =
+        (item["sourceDocumentId"] ?: item["source_document_id"]) as? String
+
+    private fun extractChunkId(item: Map<String, Any?>): Int? = when (val value = item["chunkId"] ?: item["chunk_id"]) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
     }
 
     companion object {
@@ -160,8 +174,10 @@ pipeline):
   separate calls, one per sub-question, rather than one broad query.
 - Too few or irrelevant results -> rewrite the query (broader terms, synonyms, drop
   filters) and search again rather than giving up after one call.
-- Multiple searches whose result sets you want combined into one ranking -> pass them to
-  `weighted_reciprocal_rank_fusion` instead of just concatenating them.
+- Same-intent rewrites, synonyms, or alternate retrieval strategies -> combine their
+  ranked results with `weighted_reciprocal_rank_fusion`.
+- Independent sub-questions or facets -> keep evidence coverage for each sub-question;
+  do not blindly fuse all lists into one ranking.
 
 `document_set_names` restricts results to named Document Sets. `source_types` restricts
 to connector types (e.g. "jira", "github", "confluence", "file"); unrecognized values are
@@ -181,13 +197,13 @@ recover the context an internal chat agent would otherwise pre-expand for you.
 retrieve on each side. Returns chunks ordered by `chunk_id`; concatenate their `content`
 for continuous reading."""
 
-        const val FUSION_TOOL_DESCRIPTION = """Merge multiple ranked result lists using weighted Reciprocal Rank Fusion (RRF).
+        const val FUSION_TOOL_DESCRIPTION = """Merge ranked result lists using weighted Reciprocal Rank Fusion (WRRF).
 
-Use this after issuing several `search_indexed_documents` calls for the same underlying
-question (decomposed sub-queries, or the same query run with different search_type
-values) to combine them into a single ranking, instead of manually interleaving or
-re-reading each list separately. Give a higher weight to the list you trust more (e.g.
-weight the semantic-search results higher than a broad keyword sweep)."""
+Use WRRF for searches that target the same underlying information through rewrites,
+synonyms, or alternate retrieval strategies. Omitted list weights are equal (1.0 each).
+Use explicit weights only when one ranked list is clearly more or less trustworthy.
+Do not blindly fuse independent decomposed subquestions or facets; preserve evidence
+coverage for each subquestion instead."""
 
         val SEARCH_INPUT_SCHEMA: Map<String, Any> = mapOf(
             "type" to "object",
@@ -237,8 +253,8 @@ weight the semantic-search results higher than a broad keyword sweep)."""
                 ),
                 "k" to mapOf(
                     "type" to "integer",
-                    "default" to 50,
-                    "description" to "RRF constant parameter k (default: 50).",
+                    "minimum" to 1,
+                    "description" to "Optional RRF constant k. Uses the server-configured default when omitted.",
                 ),
             ),
             "required" to listOf("ranked_results"),
@@ -258,4 +274,3 @@ weight the semantic-search results higher than a broad keyword sweep)."""
         )
     }
 }
-

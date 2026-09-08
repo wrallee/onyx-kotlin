@@ -1,6 +1,7 @@
 !plans
 
 .env
+.agents
 **/.gradle/
 **/build/
 **/.next/
