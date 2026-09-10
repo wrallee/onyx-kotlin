@@ -251,7 +251,7 @@ class OpenSearchIndexerIntegrationTest {
                 .toBodilessEntity()
                 .block(Duration.ofSeconds(30))
         }
-        assertThat(get("/$index/_doc/metadata-document").path("_source").path("metadata").path("nested").path("arbitrary"))
+        assertThat(exactDocuments("metadata-document").single().path("metadata").path("nested").path("arbitrary"))
             .isNotEmpty()
     }
 

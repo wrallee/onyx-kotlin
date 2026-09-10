@@ -206,7 +206,7 @@ class OpenSearchIndexerTest {
     fun `chunkById returns the exact indexed copy`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(acknowledgedResponse())
             server.enqueue(
                 jsonResponse(
                     """{"_index":"documents","_id":"chunk-7","_version":1,"_seq_no":0,"_primary_term":1,"found":true,"_source":{"cc_pair_id":7,"source_document_id":"doc-1","chunk_id":2,"title":"T","content":"center","metadata":{}}}""",
