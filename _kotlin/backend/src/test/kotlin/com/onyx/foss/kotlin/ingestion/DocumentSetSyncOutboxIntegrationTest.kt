@@ -69,12 +69,6 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
         if (!indexPrimed.compareAndSet(false, true)) return
         try {
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(
-                MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
-                    .setBody(
-                        """{"documents":{"mappings":{"properties":{"source_document_id":{"type":"keyword"}}}}}""",
-                    ),
-            )
             server.enqueue(MockResponse().setResponseCode(200))
             server.enqueue(success(1))
             indexer.updateDocumentSets(0, setOf("index-probe"), emptyList())

@@ -11,10 +11,6 @@ import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
 import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
 import io.netty.handler.ssl.SslContextBuilder
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory
-import okhttp3.mockwebserver.Dispatcher
-import okhttp3.mockwebserver.MockResponse
-import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.RecordedRequest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Tag
@@ -23,7 +19,6 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mock
-import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.web.reactive.function.client.WebClient
@@ -33,18 +28,11 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.utility.DockerImageName
 import org.testcontainers.containers.wait.strategy.Wait
 import reactor.netty.http.client.HttpClient
-import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
-import java.util.Base64
 import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
-import okio.Buffer
 
 @Testcontainers
 @Tag("opensearch-integration")
@@ -211,150 +199,60 @@ class OpenSearchIndexerIntegrationTest {
     }
 
     @Test
-    fun dynamicallyMappedTextIdsAreReindexedWithoutLosingExactIdentity() {
-        val urlId = "https://example.test/wiki/Engineering?id=ABC-123"
-        val fileId = "FILE_CONNECTOR__file-123"
-        putRawDocument("legacy-url", urlId, "url content")
-        putRawDocument("legacy-file", fileId, "file content")
-        assertThat(mappingProperties().path("source_document_id").path("type").asString()).isEqualTo("text")
+    fun compatibleMappingUpdatePreservesExistingDocuments() {
+        put("/$index", compatibleIndexDefinition())
+        putRawDocument("legacy", "legacy-document", "legacy content")
 
-        val indexer = indexer()
-        indexer.updateDocumentSets(7, setOf(urlId, fileId), listOf("Engineering"))
-        indexer.deleteDocuments(7, setOf(fileId))
+        indexer().updateDocumentSets(7, setOf("legacy-document"), listOf("Engineering"))
 
-        assertThat(mappingProperties().path("source_document_id").path("type").asString()).isEqualTo("keyword")
-        val urlDocument = exactDocuments(urlId).single()
-        assertThat(urlDocument.path("content").asString()).isEqualTo("url content")
-        assertThat(urlDocument.path("document_sets").toList().map(JsonNode::asString)).containsExactly("Engineering")
-        assertThat(exactDocuments(fileId)).isEmpty()
+        val mapping = get("/$index/_mapping").path(index).path("mappings")
+        assertThat(mapping.path("dynamic").asString()).isEqualTo("strict")
+        assertThat(mapping.path("properties").path("title").path("analyzer").asString()).isEqualTo("nori")
+        assertThat(mapping.path("properties").path("content").path("analyzer").asString()).isEqualTo("nori")
+        val document = exactDocuments("legacy-document").single()
+        assertThat(document.path("content").asString()).isEqualTo("legacy content")
+        assertThat(document.path("document_sets").toList().map(JsonNode::asString)).containsExactly("Engineering")
     }
 
     @Test
-    fun concurrentWriterCompletesWhileAnotherReplicaIsMigratingTheLegacyIndex() {
-        val legacyId = "legacy-document"
-        val concurrentId = "concurrent-document"
-        putRawDocument("legacy", legacyId, "legacy content")
-        val firstReindex = CountDownLatch(1)
-        val releaseFirstReindex = CountDownLatch(1)
-        val writerStarted = CountDownLatch(1)
-        MockWebServer().use { proxy ->
-            proxy.dispatcher = pausingProxy(firstReindex, releaseFirstReindex)
-            proxy.start()
-            val migratingReplica = indexer(proxy.url("/").toString().trimEnd('/'))
-            val writingReplica = indexer(proxy.url("/").toString().trimEnd('/'))
-            val executor = Executors.newFixedThreadPool(2)
-            try {
-                val migration = executor.submit {
-                    migratingReplica.updateDocumentSets(
-                        7,
-                        setOf(legacyId),
-                        listOf("Engineering"),
-                    )
-                }
-                assertThat(firstReindex.await(10, TimeUnit.SECONDS)).isTrue()
+    fun incompatibleMappingUpdateFailsWithoutChangingExistingDocuments() {
+        put("/$index", incompatibleIndexDefinition())
+        putRawDocument("legacy", "legacy-document", "legacy content")
 
-                val concurrentWrite = executor.submit {
-                    writerStarted.countDown()
-                    writingReplica.upsert(
-                        7,
-                        concurrentId,
-                        0,
-                        "Concurrent",
-                        "concurrent content",
-                        null,
-                        emptyMap(),
-                        vector(0.2),
-                    )
-                }
-                assertThat(writerStarted.await(10, TimeUnit.SECONDS)).isTrue()
-                assertThat(concurrentWrite.isDone).isFalse()
-
-                releaseFirstReindex.countDown()
-                migration.get(30, TimeUnit.SECONDS)
-                concurrentWrite.get(30, TimeUnit.SECONDS)
-            } finally {
-                releaseFirstReindex.countDown()
-                executor.shutdownNow()
-            }
+        org.junit.jupiter.api.assertThrows<IllegalStateException> {
+            indexer().updateDocumentSets(7, setOf("legacy-document"), listOf("Engineering"))
         }
 
-        assertThat(exactDocuments(legacyId).single().path("document_sets").toList().map(JsonNode::asString))
-            .containsExactly("Engineering")
-        assertThat(exactDocuments(concurrentId).single().path("content").asString()).isEqualTo("concurrent content")
+        assertThat(get("/$index/_doc/legacy").path("_source").path("content").asString())
+            .isEqualTo("legacy content")
     }
 
     @Test
-    fun concurrentMigratorsRunOneReindexAndPreserveThePostSwapWrite() {
-        val sourceDocumentId = "shared-document"
-        val documentId = Base64.getUrlEncoder().withoutPadding().encodeToString(
-            "7:$sourceDocumentId:0".toByteArray(StandardCharsets.UTF_8),
+    fun strictMappingStoresOpaqueMetadataAndRejectsUnknownRootFields() {
+        indexer().upsert(
+            7,
+            "metadata-document",
+            0,
+            "Metadata",
+            "content",
+            null,
+            mapOf("nested" to mapOf("arbitrary" to listOf(1, "two"))),
+            vector(0.1),
         )
-        putRawDocument(documentId, sourceDocumentId, "legacy content")
-        val firstReindex = CountDownLatch(1)
-        val secondReindex = CountDownLatch(1)
-        val releaseFirstReindex = CountDownLatch(1)
-        val reindexCalls = AtomicInteger()
-        MockWebServer().use { proxy ->
-            proxy.dispatcher = pausingProxy(
-                firstReindex,
-                releaseFirstReindex,
-                reindexCalls,
-                secondReindex,
-            )
-            proxy.start()
-            val firstReplica = indexer(proxy.url("/").toString().trimEnd('/'))
-            val secondReplica = indexer(proxy.url("/").toString().trimEnd('/'))
-            val executor = Executors.newFixedThreadPool(2)
-            try {
-                val firstMigration = executor.submit {
-                    firstReplica.deleteDocuments(7, setOf("not-present"))
-                }
-                assertThat(firstReindex.await(10, TimeUnit.SECONDS)).isTrue()
-                val postSwapWrite = executor.submit {
-                    secondReplica.upsert(
-                        7,
-                        sourceDocumentId,
-                        0,
-                        "Updated",
-                        "post-swap content",
-                        null,
-                        emptyMap(),
-                        vector(0.2),
-                    )
-                }
-                val migrationsOverlapped = secondReindex.await(3, TimeUnit.SECONDS)
-                if (migrationsOverlapped) postSwapWrite.get(30, TimeUnit.SECONDS)
-                releaseFirstReindex.countDown()
-                firstMigration.get(30, TimeUnit.SECONDS)
-                if (!migrationsOverlapped) postSwapWrite.get(30, TimeUnit.SECONDS)
-            } finally {
-                releaseFirstReindex.countDown()
-                executor.shutdownNow()
-            }
+
+        val metadataMapping = mappingProperties().path("metadata")
+        assertThat(metadataMapping.path("enabled").asBoolean()).isFalse()
+        assertThat(metadataMapping.has("properties")).isFalse()
+        org.junit.jupiter.api.assertThrows<org.springframework.web.reactive.function.client.WebClientResponseException.BadRequest> {
+            client.put().uri("$baseUrl/$index/_doc/unknown-root")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(mapOf("unknown" to true))
+                .retrieve()
+                .toBodilessEntity()
+                .block(Duration.ofSeconds(30))
         }
-
-        assertThat(reindexCalls.get()).isEqualTo(1)
-        assertThat(exactDocuments(sourceDocumentId).single().path("content").asString())
-            .isEqualTo("post-swap content")
-    }
-
-    @Test
-    fun restartedReplicaCompletesTheDurableBlockedMigration() {
-        val firstId = "legacy-one"
-        val secondId = "legacy-two"
-        putRawDocument("legacy-one", firstId, "first")
-        putRawDocument("legacy-two", secondId, "second")
-        put("/$index/_block/write")
-        val replacement = "$index-exact-v1"
-        put("/$replacement", exactIndexDefinition())
-        putRawDocument(replacement, "legacy-one", firstId, "first")
-
-        indexer().upsert(7, "after-restart", 0, "Restarted", "new", null, emptyMap(), vector(0.3))
-
-        assertThat((get("/_alias/$index") as tools.jackson.databind.node.ObjectNode).properties().map { it.key }).containsExactly(replacement)
-        assertThat(exactDocuments(firstId)).hasSize(1)
-        assertThat(exactDocuments(secondId)).hasSize(1)
-        assertThat(exactDocuments("after-restart")).hasSize(1)
+        assertThat(get("/$index/_doc/metadata-document").path("_source").path("metadata").path("nested").path("arbitrary"))
+            .isNotEmpty()
     }
 
     private fun indexer(url: String = baseUrl): OpenSearchIndexer = OpenSearchIndexer(
@@ -436,73 +334,37 @@ class OpenSearchIndexerIntegrationTest {
         response.toBodilessEntity().block(Duration.ofSeconds(30))
     }
 
-    private fun exactIndexDefinition(): Map<String, Any> = mapOf(
+    private fun compatibleIndexDefinition(): Map<String, Any> = mapOf(
         "settings" to mapOf("index" to mapOf("knn" to true)),
         "mappings" to mapOf(
+            "dynamic" to "strict",
             "properties" to mapOf(
                 "cc_pair_id" to mapOf("type" to "long"),
                 "source_document_id" to mapOf("type" to "keyword"),
                 "chunk_id" to mapOf("type" to "integer"),
-                "source_type" to mapOf("type" to "keyword"),
-                "external_user_emails" to mapOf("type" to "keyword"),
-                "external_user_group_ids" to mapOf("type" to "keyword"),
-                "is_public" to mapOf("type" to "boolean"),
-                "document_sets" to mapOf("type" to "keyword"),
-                "doc_updated_at" to mapOf("type" to "date"),
-                "primary_owners" to mapOf("type" to "keyword"),
-                "secondary_owners" to mapOf("type" to "keyword"),
-                "embedding" to mapOf(
-                    "type" to "knn_vector",
-                    "dimension" to 768,
-                    "method" to mapOf(
-                        "name" to "hnsw",
-                        "space_type" to "cosinesimil",
-                        "engine" to "lucene",
-                    ),
+                "content" to mapOf(
+                    "type" to "text",
+                    "analyzer" to "nori",
+                    "index_options" to "offsets",
+                    "store" to true,
                 ),
             ),
         ),
     )
 
-    private fun vector(value: Double): List<Double> = List(768) { value }
+    private fun incompatibleIndexDefinition(): Map<String, Any> = mapOf(
+        "settings" to mapOf("index" to mapOf("knn" to true)),
+        "mappings" to mapOf(
+            "properties" to mapOf(
+                "cc_pair_id" to mapOf("type" to "long"),
+                "source_document_id" to mapOf("type" to "text"),
+                "chunk_id" to mapOf("type" to "integer"),
+                "content" to mapOf("type" to "text", "analyzer" to "nori"),
+            ),
+        ),
+    )
 
-    private fun pausingProxy(
-        firstReindex: CountDownLatch,
-        releaseFirstReindex: CountDownLatch,
-        reindexCalls: AtomicInteger = AtomicInteger(),
-        secondReindex: CountDownLatch = CountDownLatch(0),
-    ): Dispatcher {
-        return object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                if (request.path?.startsWith("/_reindex") == true) {
-                    when (reindexCalls.incrementAndGet()) {
-                        1 -> {
-                            firstReindex.countDown()
-                            check(releaseFirstReindex.await(30, TimeUnit.SECONDS))
-                        }
-                        2 -> secondReindex.countDown()
-                    }
-                }
-                val method = requireNotNull(request.method)
-                val upstream = client.method(HttpMethod.valueOf(method)).uri(baseUrl + requireNotNull(request.path))
-                val contentType = request.getHeader("Content-Type")
-                if (contentType != null) upstream.header("Content-Type", contentType)
-                val response = (if (method in setOf("POST", "PUT", "PATCH")) {
-                    upstream.bodyValue(request.body.clone().readByteArray())
-                } else {
-                    upstream
-                }).exchangeToMono { result ->
-                    result.bodyToMono(ByteArray::class.java).defaultIfEmpty(ByteArray(0)).map { body ->
-                        Triple(result.statusCode().value(), result.headers().asHttpHeaders().contentType, body)
-                    }
-                }.block(Duration.ofSeconds(30)) ?: error("OpenSearch proxy returned no response")
-                return MockResponse().setResponseCode(response.first).apply {
-                    response.second?.let { setHeader("Content-Type", it.toString()) }
-                    setBody(Buffer().write(response.third))
-                }
-            }
-        }
-    }
+    private fun vector(value: Double): List<Double> = List(768) { value }
 
     private fun insecureClient(): WebClient {
         val sslContext = SslContextBuilder.forClient()
@@ -533,6 +395,21 @@ class OpenSearchIndexerIntegrationTest {
             withEnv("discovery.type", "single-node")
             withEnv("OPENSEARCH_INITIAL_ADMIN_PASSWORD", ADMIN_PASSWORD)
             withEnv("OPENSEARCH_JAVA_OPTS", "-Xms512m -Xmx512m")
+            withCommand(
+                "sh",
+                "-c",
+                """
+                    if ! /usr/share/opensearch/bin/opensearch-plugin list | grep -Fx analysis-nori; then
+                      plugin_zip=${'$'}(mktemp)
+                      trap 'rm -f "${'$'}plugin_zip"' EXIT
+                      curl -fSsL -o "${'$'}plugin_zip" https://artifacts.opensearch.org/releases/plugins/analysis-nori/3.6.0/analysis-nori-3.6.0.zip
+                      /usr/share/opensearch/bin/opensearch-plugin install --batch "file:${'$'}plugin_zip"
+                      rm -f "${'$'}plugin_zip"
+                      trap - EXIT
+                    fi
+                    exec /usr/share/opensearch/opensearch-docker-entrypoint.sh opensearch
+                """.trimIndent(),
+            )
             withCreateContainerCmdModifier { command ->
                 command.withHostConfig(
                     requireNotNull(command.hostConfig)
