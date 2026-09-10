@@ -32,17 +32,17 @@ ACL 제거·Spring AI 도입·native hybrid 변경은 [INGEST-CONFLICTS.md](INGE
 
 ### 현재 구현과 검증 근거
 
-- [ ] **BASE-01**: 개발자가 적용 가능한 FOSS 시나리오와 승인된 계약을 현재 구현·테스트 위치에 연결할 수 있다. 제외·대체 검증에는 원문 근거를 남긴다. [S01, S02, S05, S09]
-- [ ] **BASE-02**: 개발자가 문서상 완료와 현재 검증 상태를 구분할 수 있다. 재현 명령, 실행 결과, 미실행·환경 제약과 후속 검증 차이를 기록한다. [S01, S04, S06, S08, S10, S11]
+- [x] **BASE-01**: 개발자가 적용 가능한 FOSS 시나리오와 승인된 계약을 현재 구현·테스트 위치에 연결할 수 있다. 제외·대체 검증에는 원문 근거를 남긴다. [S01, S02, S05, S09]
+- [x] **BASE-02**: 개발자가 문서상 완료와 현재 검증 상태를 구분할 수 있다. 재현 명령, 실행 결과, 미실행·환경 제약과 후속 검증 차이를 기록한다. [S01, S04, S06, S08, S10, S11]
 
 ### 관리 수명주기와 공개 문서
 
-- [ ] **ADMIN-01**: 운영자가 Credential을 생성·masking 조회·수정·연결 검사·삭제할 수 있다. 응답·로그·예외는 credential 값을 노출하지 않는다. [S01, S02]
-- [ ] **ADMIN-02**: 운영자가 Connector·CC Pair를 생성·수정·연결·일시정지·실행·삭제할 수 있다. 잘못된 연결 거부, metadata·상태·색인 요약·attempt·pagination은 기존 Web 계약을 따른다. [S01, S02, S05]
-- [ ] **ADMIN-03**: 운영자가 Document Set의 구성원을 관리하고 수정·삭제·공개 상태를 확인할 수 있다. 구성원 변경은 관련 색인 metadata와 일치한다. [S01, S02, S06]
-- [ ] **ADMIN-04**: 운영자가 파일을 upload·교체·제거할 수 있다. `file_locations`, `file_names`, metadata와 connector 설정이 함께 일치한다. [S01, S02]
-- [ ] **PUBLIC-01**: 모든 CC Pair가 `access_type="public"`이며 문서는 공개 상태로 색인된다. `external_user_emails`·`external_user_group_ids`는 빈 배열이고 권한 수집용 외부 API 호출은 없다. [S05]
-- [ ] **PUBLIC-02**: Permission sync worker·scheduler·API·관련 entity와 테이블이 제거된 상태를 검증한다. V1~V15 체크섬과 V16 제거 계약을 보존하며 기존 Web은 제거된 API를 호출하지 않는다. [S05]
+- [x] **ADMIN-01**: 운영자가 Credential을 생성·masking 조회·수정·연결 검사·삭제할 수 있다. 응답·로그·예외는 credential 값을 노출하지 않는다. [S01, S02]
+- [x] **ADMIN-02**: 운영자가 Connector·CC Pair를 생성·수정·연결·일시정지·실행·삭제할 수 있다. 잘못된 연결 거부, metadata·상태·색인 요약·attempt·pagination은 기존 Web 계약을 따른다. [S01, S02, S05]
+- [x] **ADMIN-03**: 운영자가 Document Set의 구성원을 관리하고 수정·삭제·공개 상태를 확인할 수 있다. 구성원 변경은 관련 색인 metadata와 일치한다. [S01, S02, S06]
+- [x] **ADMIN-04**: 운영자가 파일을 upload·교체·제거할 수 있다. `file_locations`, `file_names`, metadata와 connector 설정이 함께 일치한다. [S01, S02]
+- [x] **PUBLIC-01**: 모든 CC Pair가 `access_type="public"`이며 문서는 공개 상태로 색인된다. `external_user_emails`·`external_user_group_ids`는 빈 배열이고 권한 수집용 외부 API 호출은 없다. [S05]
+- [x] **PUBLIC-02**: Permission sync worker·scheduler·API·관련 entity와 테이블이 제거된 상태를 검증한다. V1~V15 체크섬과 V16 제거 계약을 보존하며 기존 Web은 제거된 API를 호출하지 않는다. [S05]
 
 ### Kotlin model-server
 
@@ -129,14 +129,14 @@ S09의 추가 필터와 `get_document_context` 참조를 보존한다. 전체 MC
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BASE-01 | Phase 1 | Pending |
-| BASE-02 | Phase 1 | Pending |
-| ADMIN-01 | Phase 2 | Pending |
-| ADMIN-02 | Phase 2 | Pending |
-| ADMIN-03 | Phase 2 | Pending |
-| ADMIN-04 | Phase 2 | Pending |
-| PUBLIC-01 | Phase 2 | Pending |
-| PUBLIC-02 | Phase 2 | Pending |
+| BASE-01 | Phase 1 | Complete |
+| BASE-02 | Phase 1 | Complete |
+| ADMIN-01 | Phase 2 | Complete |
+| ADMIN-02 | Phase 2 | Complete |
+| ADMIN-03 | Phase 2 | Complete |
+| ADMIN-04 | Phase 2 | Complete |
+| PUBLIC-01 | Phase 2 | Complete |
+| PUBLIC-02 | Phase 2 | Complete |
 | MODEL-01 | Phase 3 | Pending |
 | MODEL-02 | Phase 3 | Pending |
 | MODEL-03 | Phase 3 | Pending |
