@@ -60,6 +60,8 @@ class SearchPropertiesTest {
             "onyx.search.hybrid-candidate-multiplier=0",
             "onyx.search.rrf-k=0",
         ).run { context -> assertThat(context).hasFailed() }
+        runner.withPropertyValues("onyx.search.hybrid-candidate-multiplier=101")
+            .run { context -> assertThat(context).hasFailed() }
     }
 
     @Configuration(proxyBeanMethods = false)

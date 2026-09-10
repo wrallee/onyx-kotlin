@@ -79,14 +79,15 @@ class SearchServiceTest {
     }
 
     @Test
-    fun `search returns a bounded excerpt instead of full chunk content`() {
-        val content = "x".repeat(SearchService.MAX_SEARCH_EXCERPT_CHARS + 1)
+    fun `search returns a bounded excerpt around a late keyword match`() {
+        val content = "x".repeat(400) + "query match" + "y".repeat(400)
         `when`(indexer.keywordSearch("query", emptyList(), 1, emptyList(), null))
             .thenReturn(listOf(candidate("long").copy(content = content)))
 
         val result = service.search("query", emptyList(), 1, SearchType.KEYWORD).results.single()
 
-        assertThat(result.excerpt).isEqualTo("x".repeat(SearchService.MAX_SEARCH_EXCERPT_CHARS))
+        assertThat(result.excerpt).hasSize(SearchService.MAX_SEARCH_EXCERPT_CHARS)
+        assertThat(result.excerpt).contains("query match")
     }
 
     @Test

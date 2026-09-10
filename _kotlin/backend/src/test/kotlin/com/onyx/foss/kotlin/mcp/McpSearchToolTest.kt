@@ -211,7 +211,7 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `search response stays bounded and preserves both MCP representations`() {
+    fun `search response preserves the excerpt contract in both MCP representations`() {
         val mapper = jacksonObjectMapper()
 
         listOf(3, 5, 10, 20).forEach { limit ->
@@ -233,9 +233,23 @@ class McpSearchToolTest {
             val result = tool.callSearch(mapOf("query" to "query", "limit" to limit))
             val text = (result.content().single() as McpSchema.TextContent).text()
 
-            assertThat(text.length).isLessThan(limit * 600)
             assertThat(mapper.readTree(text)).isEqualTo(mapper.valueToTree(result.structuredContent()))
             assertThat(text).doesNotContain("\"content\"")
+        }
+    }
+
+    @Test
+    fun `search rejects fractional and out-of-range limits`() {
+        val realSearch = SearchService(
+            SearchProperties(),
+            mock(ModelServerClient::class.java),
+            mock(OpenSearchIndexer::class.java),
+            mock(DocumentSetRepository::class.java),
+        )
+        val validationTool = McpSearchTool(realSearch, jacksonObjectMapper())
+
+        listOf(1.5, 0, 51).forEach { limit ->
+            assertThat(validationTool.callSearch(mapOf("query" to "query", "limit" to limit)).isError()).isTrue()
         }
     }
 

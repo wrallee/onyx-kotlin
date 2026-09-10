@@ -61,7 +61,7 @@ class SearchService(
         }
 
         return SearchResponse(
-            results = ranked.take(limit).map(SearchCandidate::toSearchResult),
+            results = ranked.take(limit).map { it.toSearchResult(query) },
         )
     }
 
@@ -184,15 +184,28 @@ class SearchService(
     }
 }
 
-private fun SearchCandidate.toSearchResult(): SearchResult = SearchResult(
+private fun SearchCandidate.toSearchResult(query: String): SearchResult = SearchResult(
     sourceDocumentId = sourceDocumentId,
     chunkId = chunkId,
     title = title,
-    excerpt = content.take(SearchService.MAX_SEARCH_EXCERPT_CHARS),
+    excerpt = content.searchExcerpt(query),
     link = link,
     metadata = metadata,
     retrievalScore = retrievalScore,
 )
+
+private fun String.searchExcerpt(query: String): String {
+    if (length <= SearchService.MAX_SEARCH_EXCERPT_CHARS) return this
+    val match = indexOf(query, ignoreCase = true).takeIf { it >= 0 }
+        ?: query.split(Regex("\\s+")).asSequence()
+            .filter { it.length >= 3 }
+            .map { indexOf(it, ignoreCase = true) }
+            .firstOrNull { it >= 0 }
+        ?: 0
+    val start = (match - SearchService.MAX_SEARCH_EXCERPT_CHARS / 2)
+        .coerceIn(0, length - SearchService.MAX_SEARCH_EXCERPT_CHARS)
+    return substring(start, start + SearchService.MAX_SEARCH_EXCERPT_CHARS)
+}
 
 enum class SearchType {
     HYBRID,

@@ -150,7 +150,7 @@ class OpenSearchIndexerIntegrationTest {
     fun nativeHybridSearchCreatesPipelinesAndCollapsesChunksByDocument() {
         val writer = indexer()
         writer.upsert(7, "engineering-a", 0, "Deployment Guide", "deployment needle alpha", null, emptyMap(), vector(0.1), listOf("Engineering"))
-        writer.upsert(7, "engineering-a", 1, "Deployment Guide", "deployment needle alpha two", null, emptyMap(), vector(0.1), listOf("Engineering"))
+        writer.upsert(7, "engineering-a", 1, "Unrelated", "unrelated text", null, emptyMap(), vector(0.1), listOf("Engineering"))
         writer.upsert(7, "engineering-b", 0, "Deployment Guide", "deployment needle beta", null, emptyMap(), vector(0.2), listOf("Engineering"))
         writer.upsert(7, "finance", 0, "Deployment Guide", "deployment needle finance", null, emptyMap(), vector(0.3), listOf("Finance"))
 
@@ -164,6 +164,8 @@ class OpenSearchIndexerIntegrationTest {
 
         assertThat(results.map(SearchCandidate::sourceDocumentId))
             .containsExactlyInAnyOrder("engineering-a", "engineering-b")
+        assertThat(results.single { it.sourceDocumentId == "engineering-a" }.chunkId).isZero()
+        assertThat(results.mapNotNull(SearchCandidate::retrievalScore)).isSortedAccordingTo(reverseOrder())
 
         val minMaxId = "$index-hybrid-min-max"
         val zScoreId = "$index-hybrid-z-score"

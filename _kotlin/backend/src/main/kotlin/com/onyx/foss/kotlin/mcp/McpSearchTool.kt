@@ -9,6 +9,7 @@ import com.onyx.foss.kotlin.service.SearchService
 import com.onyx.foss.kotlin.service.SearchType
 import io.modelcontextprotocol.spec.McpSchema
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
 import java.time.Instant
 
 @Component
@@ -40,7 +41,7 @@ class McpSearchTool(
             it as? String ?: throw IllegalArgumentException("document_sets must contain strings")
         }
         val documentSets = if (!requestedSets.isNullOrEmpty()) requestedSets else defaultDocumentSets
-        val limit = (arguments["limit"] as? Number)?.toInt() ?: SearchService.DEFAULT_RESULTS
+        val limit = parseLimit(arguments["limit"])
         val searchTypeStr = arguments["search_type"] as? String
         val searchType = SearchType.fromString(searchTypeStr)
         val sourceTypes = parseSourceTypes(arguments["source_types"] as? List<*>)
@@ -83,6 +84,13 @@ class McpSearchTool(
             val value = entry as? String ?: return@mapNotNull null
             runCatching { ConnectorSource.fromValue(value) }.getOrNull()?.value
         }
+
+    private fun parseLimit(raw: Any?): Int = when (raw) {
+        null -> SearchService.DEFAULT_RESULTS
+        is Number -> runCatching { BigDecimal(raw.toString()).intValueExact() }
+            .getOrElse { throw IllegalArgumentException("limit must be an integer") }
+        else -> throw IllegalArgumentException("limit must be an integer")
+    }
 
     private fun parseTimeCutoff(raw: String?): Instant? {
         if (raw.isNullOrBlank()) return null
@@ -188,7 +196,7 @@ ignored (search proceeds without the filter) rather than failing the call."""
         const val CONTEXT_TOOL_DESCRIPTION = """Fetch the chunks immediately before/after a specific chunk in a document
 returned by `search_indexed_documents`.
 
-Use this when a search result's `content` is truncated, cuts off mid-sentence, or you
+Use this when a search result's `excerpt` is truncated, cuts off mid-sentence, or you
 need more surrounding text to judge relevance or answer accurately — this is how you
 recover the context an internal chat agent would otherwise pre-expand for you.
 

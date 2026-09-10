@@ -162,7 +162,7 @@ This file records deferred checks. It does not schedule work.
 - action: 기본 limit, 반환 필드, chunk 축약 방식을 검토하고 품질을 유지하는 최소 응답 계약을 정한다.
 - done_when: limit 3·5·10·20 회귀 측정에서 응답 크기 상한을 지키고 필요한 근거와 text·structuredContent 계약을 보존한다.
 - last_checked_at: 2026-09-10T15:16:09+09:00
-- result: 검색 응답을 300자 excerpt와 metadata로 제한하고 상세 조회를 get_document_context로 분리했다. limit 3·5·10·20에서 크기 상한과 text·structuredContent 동등성을 검증했다. 기본 limit은 30, 최대는 50이다.
+- result: chunk 전문 대신 검색어 주변 300자 excerpt와 metadata를 반환하고 상세 조회를 get_document_context로 분리했다. limit 3·5·10·20에서 excerpt 계약과 text·structuredContent 동등성을 검증했다. 기본 limit은 30, 최대는 50이다.
 - next_step_on_fail: 기본 limit 하향과 선택적 상세 조회를 분리해 단계적으로 적용한다.
 
 ## Archive

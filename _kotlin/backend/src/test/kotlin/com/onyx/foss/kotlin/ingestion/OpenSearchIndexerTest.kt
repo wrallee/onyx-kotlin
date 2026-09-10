@@ -122,7 +122,7 @@ class OpenSearchIndexerTest {
             server.start()
 
             val properties = testProperties(server)
-            val searchProperties = SearchProperties(hybridCandidateMultiplier = 5)
+            val searchProperties = SearchProperties(hybridCandidateMultiplier = 8)
             OpenSearchClientFactory.createTransport(properties, mapper).use { transport ->
                 val client = OpenSearchClient(transport)
                 val registry = HybridNormalizationPipelineRegistry(
@@ -157,10 +157,11 @@ class OpenSearchIndexerTest {
                     .isEqualTo("documents-hybrid-min-max")
                 assertThat(body.path("size").asInt()).isEqualTo(7)
                 val hybrid = body.path("query").path("hybrid")
-                assertThat(hybrid.path("pagination_depth").asInt()).isEqualTo(35)
+                assertThat(hybrid.path("pagination_depth").asInt()).isEqualTo(56)
                 assertThat(hybrid.path("queries").get(1).path("knn").path("embedding").path("k").asInt())
-                    .isEqualTo(35)
+                    .isEqualTo(56)
                 assertThat(body.path("collapse").path("field").asString()).isEqualTo("source_document_id")
+                assertThat(body.has("sort")).isFalse()
                 assertThat(hybrid.path("filter").path("bool").path("filter").first()
                     .path("terms").path("document_sets").toList().map { it.asString() })
                     .containsExactly("Engineering")
