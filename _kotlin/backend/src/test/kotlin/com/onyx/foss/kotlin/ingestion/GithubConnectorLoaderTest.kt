@@ -235,6 +235,7 @@ class GithubConnectorLoaderTest {
                                 "review_comments_url",
                                 server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
                             )
+                            .put("review_comments", 2)
                             .put("merged", true)
                             .put("commits", 8)
                             .put("changed_files", 9)
@@ -265,7 +266,37 @@ class GithubConnectorLoaderTest {
         assertEquals(true, document.metadata["merged"])
         assertEquals(8, document.metadata["num_commits"])
         assertEquals(9, document.metadata["num_files_changed"])
-        assertTrue(requested.any { it.startsWith("/repos/test-org/test-repo/pulls/7/comments") })
+        assertTrue(requested.contains("/repos/test-org/test-repo/pulls/7/comments?per_page=100"))
+    }
+
+    @Test
+    fun pullRequestWithoutReviewCommentsSkipsCommentRequest() = MockWebServer().use { server ->
+        val requested = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requested += request.path.orEmpty()
+                return when (request.requestUrl!!.encodedPath) {
+                    "/repos/test-org/test-repo" -> json(repoJson())
+                    "/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
+                    "/repos/test-org/test-repo/pulls/7" -> {
+                        val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode)
+                            .put(
+                                "review_comments_url",
+                                server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
+                            )
+                            .put("review_comments", 0)
+                        json(mapper.writeValueAsString(detail))
+                    }
+                    "/repos/test-org/test-repo/pulls/7/comments" -> json("[]", 500)
+                    else -> json("[]")
+                }
+            }
+        }
+
+        val document = loader().load(config(server), credentials(), null).flatMap { it.documents }.single()
+
+        assertEquals("PR body", document.content)
+        assertFalse(requested.any { it.startsWith("/repos/test-org/test-repo/pulls/7/comments") })
     }
 
     @Test
@@ -276,10 +307,12 @@ class GithubConnectorLoaderTest {
                 "$prefix/repos/test-org/test-repo" -> json(repoJson())
                 "$prefix/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
                 "$prefix/repos/test-org/test-repo/pulls/7" -> {
-                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode).put(
-                        "review_comments_url",
-                        server.url("$prefix/repos/test-org/test-repo/pulls/7/comments").toString(),
-                    )
+                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode)
+                        .put(
+                            "review_comments_url",
+                            server.url("$prefix/repos/test-org/test-repo/pulls/7/comments").toString(),
+                        )
+                        .put("review_comments", 2)
                     json(mapper.writeValueAsString(detail))
                 }
                 "$prefix/repos/test-org/test-repo/pulls/7/comments" -> {
@@ -309,10 +342,12 @@ class GithubConnectorLoaderTest {
                 "/repos/test-org/test-repo" -> json(repoJson())
                 "/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
                 "/repos/test-org/test-repo/pulls/7" -> {
-                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode).put(
-                        "review_comments_url",
-                        server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
-                    )
+                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode)
+                        .put(
+                            "review_comments_url",
+                            server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
+                        )
+                        .put("review_comments", 1)
                     json(mapper.writeValueAsString(detail))
                 }
                 "/repos/test-org/test-repo/pulls/7/comments" -> json(

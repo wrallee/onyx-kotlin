@@ -648,8 +648,10 @@ class GithubConnectorLoader(
     }
 
     private fun fetchReviewComments(context: Context, pullRequest: JsonNode): String {
-        var path: String? = pullRequest.text("review_comments_url")?.let { safeCursorPath(context.base, it) }
+        if (pullRequest.path("review_comments").asInt() == 0) return ""
+        val firstPath = pullRequest.text("review_comments_url")?.let { safeCursorPath(context.base, it) }
             ?: return ""
+        var path: String? = firstPath + if ('?' in firstPath) "&per_page=100" else "?per_page=100"
         val comments = StringBuilder()
         val visited = mutableSetOf<String>()
         var commentCount = 0

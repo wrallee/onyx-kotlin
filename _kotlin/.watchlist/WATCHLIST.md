@@ -177,6 +177,20 @@ This file records deferred checks. It does not schedule work.
 - result:
 - next_step_on_fail: 색인 단계의 최신본 통합과 검색 단계의 최신본 선택 중 더 작은 공통 수정 지점을 다시 비교한다.
 
+### WL-20260911-002 — GitHub GraphQL 전환과 증분 수집·PR N+1 개선
+- status: open
+- priority: P1
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-11T07:51:36+09:00
+- source: PR #26; backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/GithubConnectorLoader.kt
+- trigger: REST 기반 PR 수집은 목록 뒤 각 PR 상세와 리뷰 댓글을 개별 조회해 호출 수가 PR 수에 비례한다. 파일 수집은 저장소에 push가 있으면 전체 tree와 대상 파일을 다시 읽고, 리뷰 댓글만 변경된 경우의 증분 반영 계약도 명확하지 않다.
+- action: GitHub.com과 GitHub Enterprise Server에서 GraphQL로 PR 본문, 메타데이터, 리뷰 스레드와 댓글을 페이지 단위로 조회한다. PR·댓글·파일 변경을 독립적으로 추적하는 시간 범위와 checkpoint를 정하고, 현재 overlap, 삭제 prune, rate limit 비용과 실패 후 재개 계약을 보존한다.
+- done_when: 일반 페이지는 PR별 상세 REST 호출 없이 수집되고, 100개를 넘는 PR·리뷰 스레드·댓글도 누락 없이 이어서 조회된다. 댓글만 변경된 PR과 파일 변경이 불필요한 전체 재조회 없이 반영되며, pagination·checkpoint 재개·삭제 prune이 회귀 테스트로 검증된다.
+- last_checked_at:
+- result:
+- next_step_on_fail: GraphQL 또는 변경 파일 API의 호환성이 부족하면 REST 저장소 단위 댓글 조회와 현재 전체 파일 수집을 분리해 단계적으로 개선한다.
+
 ## Done
 
 ### WL-20260910-002 — limit 증가에 따른 MCP 응답 토큰 과대 방지
