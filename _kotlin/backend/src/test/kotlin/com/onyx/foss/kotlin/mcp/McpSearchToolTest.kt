@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.eq
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
+import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 
 class McpSearchToolTest {
@@ -30,14 +31,14 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `search tool forwards document sets and limit`() {
+    fun `search tool forwards document set names and limit`() {
         val response = SearchResponse(results = emptyList())
         `when`(search.search("deployment guide", listOf("Engineering", "Operations"), 7, SearchType.HYBRID)).thenReturn(response)
 
         val result = tool.callSearch(
             mapOf(
                 "query" to "deployment guide",
-                "document_sets" to listOf("Engineering", "Operations"),
+                "document_set_names" to listOf("Engineering", "Operations"),
                 "limit" to 7,
             ),
         )
@@ -91,7 +92,7 @@ class McpSearchToolTest {
         val result = tool.callSearch(
             mapOf(
                 "query" to "deployment guide",
-                "document_sets" to listOf("CustomSet"),
+                "document_set_names" to listOf("CustomSet"),
             ),
             listOf("DefaultSet"),
         )
@@ -135,19 +136,7 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `search tool skips unknown source types instead of failing`() {
-        val response = SearchResponse(results = emptyList())
-        `when`(
-            search.search(
-                "deployment guide",
-                emptyList(),
-                SearchService.DEFAULT_RESULTS,
-                SearchType.HYBRID,
-                listOf("jira"),
-                null,
-            ),
-        ).thenReturn(response)
-
+    fun `search tool rejects unknown source types`() {
         val result = tool.callSearch(
             mapOf(
                 "query" to "deployment guide",
@@ -155,15 +144,8 @@ class McpSearchToolTest {
             ),
         )
 
-        verify(search).search(
-            "deployment guide",
-            emptyList(),
-            SearchService.DEFAULT_RESULTS,
-            SearchType.HYBRID,
-            listOf("jira"),
-            null,
-        )
-        assertThat(result.isError() == true).isFalse()
+        assertThat(result.isError()).isTrue()
+        verifyNoInteractions(search)
     }
 
     @Test
@@ -347,6 +329,14 @@ class McpSearchToolTest {
 
         assertThat(k).doesNotContainKey("default")
         assertThat(McpSearchTool.FUSION_TOOL_DESCRIPTION).contains("Do not blindly fuse")
+    }
+
+    @Test
+    fun `search schema exposes only the canonical document set argument`() {
+        @Suppress("UNCHECKED_CAST")
+        val properties = McpSearchTool.SEARCH_INPUT_SCHEMA["properties"] as Map<String, Any>
+
+        assertThat(properties).containsKey("document_set_names").doesNotContainKey("document_sets")
     }
 
 }

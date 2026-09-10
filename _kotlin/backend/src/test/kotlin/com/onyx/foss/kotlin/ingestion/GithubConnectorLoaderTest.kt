@@ -1,6 +1,7 @@
 package com.onyx.foss.kotlin.ingestion
 
 import tools.jackson.databind.JsonNode
+import tools.jackson.databind.node.ObjectNode
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import okhttp3.mockwebserver.Dispatcher
@@ -228,11 +229,29 @@ class GithubConnectorLoaderTest {
                     "/repos/test-org/test-repo/pulls" -> json(
                         """[{"id":70,"number":7,"title":"PR 7","html_url":"https://github.test/test-org/test-repo/pull/7","updated_at":"2026-01-02T00:00:00Z"}]""",
                     )
-                    "/repos/test-org/test-repo/pulls/7" -> json(
-                        pull(7, body = "detail body").replace("\"merged\":false", "\"merged\":true")
-                            .replace("\"commits\":2", "\"commits\":8")
-                            .replace("\"changed_files\":3", "\"changed_files\":9"),
-                    )
+                    "/repos/test-org/test-repo/pulls/7" -> {
+                        val detail = (mapper.readTree(pull(7, body = "detail body")).deepCopy() as ObjectNode)
+                            .put(
+                                "review_comments_url",
+                                server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
+                            )
+                            .put("review_comments", 2)
+                            .put("merged", true)
+                            .put("commits", 8)
+                            .put("changed_files", 9)
+                        json(mapper.writeValueAsString(detail))
+                    }
+                    "/repos/test-org/test-repo/pulls/7/comments" -> {
+                        val page = request.requestUrl!!.queryParameter("page")
+                        if (page == "2") {
+                            json("""[{"body":"second review comment"}]""")
+                        } else {
+                            json("""[{"body":"first review comment"}]""").setHeader(
+                                "Link",
+                                "<${server.url("/repos/test-org/test-repo/pulls/7/comments?page=2")}>; rel=\"next\"",
+                            )
+                        }
+                    }
                     else -> json("[]")
                 }
             }
@@ -240,11 +259,107 @@ class GithubConnectorLoaderTest {
 
         val document = loader().load(config(server), credentials(), null).flatMap { it.documents }.single()
 
-        assertEquals("detail body", document.content)
+        assertEquals(
+            "detail body\n\nReview comment:\nfirst review comment\n\nReview comment:\nsecond review comment",
+            document.content,
+        )
         assertEquals(true, document.metadata["merged"])
         assertEquals(8, document.metadata["num_commits"])
         assertEquals(9, document.metadata["num_files_changed"])
-        assertTrue(requested.any { it.startsWith("/repos/test-org/test-repo/pulls/7") })
+        assertTrue(requested.contains("/repos/test-org/test-repo/pulls/7/comments?per_page=100"))
+    }
+
+    @Test
+    fun pullRequestWithoutReviewCommentsSkipsCommentRequest() = MockWebServer().use { server ->
+        val requested = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requested += request.path.orEmpty()
+                return when (request.requestUrl!!.encodedPath) {
+                    "/repos/test-org/test-repo" -> json(repoJson())
+                    "/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
+                    "/repos/test-org/test-repo/pulls/7" -> {
+                        val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode)
+                            .put(
+                                "review_comments_url",
+                                server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
+                            )
+                            .put("review_comments", 0)
+                        json(mapper.writeValueAsString(detail))
+                    }
+                    "/repos/test-org/test-repo/pulls/7/comments" -> json("[]", 500)
+                    else -> json("[]")
+                }
+            }
+        }
+
+        val document = loader().load(config(server), credentials(), null).flatMap { it.documents }.single()
+
+        assertEquals("PR body", document.content)
+        assertFalse(requested.any { it.startsWith("/repos/test-org/test-repo/pulls/7/comments") })
+    }
+
+    @Test
+    fun reviewCommentPaginationSupportsGithubEnterpriseApiBase() = MockWebServer().use { server ->
+        val prefix = "/api/v3"
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "$prefix/repos/test-org/test-repo" -> json(repoJson())
+                "$prefix/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
+                "$prefix/repos/test-org/test-repo/pulls/7" -> {
+                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode)
+                        .put(
+                            "review_comments_url",
+                            server.url("$prefix/repos/test-org/test-repo/pulls/7/comments").toString(),
+                        )
+                        .put("review_comments", 2)
+                    json(mapper.writeValueAsString(detail))
+                }
+                "$prefix/repos/test-org/test-repo/pulls/7/comments" -> {
+                    if (request.requestUrl!!.queryParameter("page") == "2") {
+                        json("""[{"body":"second"}]""")
+                    } else {
+                        json("""[{"body":"first"}]""").setHeader(
+                            "Link",
+                            "<${server.url("$prefix/repos/test-org/test-repo/pulls/7/comments?page=2")}>; rel=\"next\"",
+                        )
+                    }
+                }
+                else -> json("[]", 404)
+            }
+        }
+
+        val document = loader().load(config(server, basePath = prefix), credentials(), null)
+            .flatMap { it.documents }.single()
+
+        assertContains(document.content, "Review comment:\nfirst\n\nReview comment:\nsecond")
+    }
+
+    @Test
+    fun oversizedReviewCommentsYieldFailure() = MockWebServer().use { server ->
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "/repos/test-org/test-repo" -> json(repoJson())
+                "/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
+                "/repos/test-org/test-repo/pulls/7" -> {
+                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode)
+                        .put(
+                            "review_comments_url",
+                            server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
+                        )
+                        .put("review_comments", 1)
+                    json(mapper.writeValueAsString(detail))
+                }
+                "/repos/test-org/test-repo/pulls/7/comments" -> json(
+                    mapper.writeValueAsString(listOf(mapOf("body" to "x".repeat(8 * 1024 * 1024 + 1)))),
+                )
+                else -> json("[]")
+            }
+        }
+
+        val failure = loader().load(config(server), credentials(), null).flatMap { it.failures }.single()
+
+        assertContains(failure.message, "review comment limit exceeded: content exceeds")
     }
 
     @Test
@@ -981,8 +1096,8 @@ class GithubConnectorLoaderTest {
 
     private fun credentials(): JsonNode = mapper.readTree("""{"github_access_token":"token"}""")
 
-    private fun config(server: MockWebServer, extra: String = ""): JsonNode = mapper.readTree(
-        """{"github_base_url":"${server.startAndBase()}","repo_owner":"test-org","repositories":"test-repo","include_prs":true,"include_issues":false,"include_files":false${if (extra.isBlank()) "" else ",$extra"}}""",
+    private fun config(server: MockWebServer, extra: String = "", basePath: String = ""): JsonNode = mapper.readTree(
+        """{"github_base_url":"${server.startAndBase()}$basePath","repo_owner":"test-org","repositories":"test-repo","include_prs":true,"include_issues":false,"include_files":false${if (extra.isBlank()) "" else ",$extra"}}""",
     )
 
     private fun fileConfig(server: MockWebServer, branch: String? = null): JsonNode = config(

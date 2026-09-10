@@ -11,6 +11,7 @@
 - Fix approach: Name the target runtime in each change. Verify contracts against that implementation and its tests.
 
 **Kotlin container build bypasses the wrapper:**
+- Status: Resolved 2026-09-10. The image now builds with the Gradle 9.5.1 wrapper on Java 25.
 - Issue: The Dockerfile invokes installed Gradle 8.14.3. The repository wrapper selects Gradle 9.5.1.
 - Files: `_kotlin/backend/Dockerfile`, `_kotlin/backend/gradle/wrapper/gradle-wrapper.properties`.
 - Impact: Container and CI dependency resolution and build behavior can differ.
@@ -19,6 +20,7 @@
 ## Known Bugs
 
 **Kotlin image cannot run the configured Java 25 output:**
+- Status: Resolved 2026-09-10. The build and runtime images now use Eclipse Temurin 25.
 - Evidence: Confirmed configuration mismatch; no container build or runtime test was performed during mapping.
 - Symptoms: The build requests Java 25, but the image supplies JDK 21. The final runtime also supplies Java 21.
 - Files: `_kotlin/backend/build.gradle.kts`, `_kotlin/backend/Dockerfile`, `_kotlin/backend/settings.gradle.kts`.
@@ -27,6 +29,7 @@
 - Workaround: Use the Java 25 wrapper-based workflow until the image is aligned: `.github/workflows/custom-kotlin-backend-checks.yml`.
 
 **Kotlin upload rollback leaves files outside the database transaction:**
+- Status: Resolved 2026-09-10. Rollback cleanup now removes files created by the failed request.
 - Evidence: Confirmed failure-path gap from static inspection; not reproduced during mapping.
 - Symptoms: Files can remain on disk after the transaction rolls back their asset rows.
 - Files: `_kotlin/backend/src/main/kotlin/com/onyx/foss/kotlin/service/FileStorageService.kt`.
@@ -108,6 +111,7 @@
 ## Dependencies at Risk
 
 **Kotlin Java and Gradle requirements differ between delivery paths:**
+- Status: Resolved 2026-09-10. Docker now uses the repository wrapper and Java 25 for both stages.
 - Risk: CI uses Java 25 and the wrapper; Docker uses Java 21 and installed Gradle 8.14.3.
 - Files: `.github/workflows/custom-kotlin-backend-checks.yml`, `_kotlin/backend/Dockerfile`, `_kotlin/backend/build.gradle.kts`.
 - Impact: Passing backend tests does not establish that the packaged service starts.
@@ -129,12 +133,14 @@
 - Priority: High for changes to leases, claims, outbox ownership, and schema migrations.
 
 **Kotlin packaged runtime:**
+- Status: Resolved 2026-09-10. A Java 25 image build and non-root runtime check passed.
 - What's not tested: The backend CI workflow runs unit and OpenSearch integration tasks, but does not build or start the image.
 - Files: `.github/workflows/custom-kotlin-backend-checks.yml`, `_kotlin/backend/Dockerfile`.
 - Risk: The Java version mismatch can survive those CI tasks.
 - Priority: High.
 
 **Kotlin upload failure cleanup:**
+- Status: Resolved 2026-09-10. An integration test now verifies cleanup after a later ZIP entry fails.
 - What's not tested: Upload tests cover ZIP metadata, MIME variants, and size rejection; batch rollback file cleanup was not detected.
 - Files: `_kotlin/backend/src/test/kotlin/com/onyx/foss/kotlin/api/AdminApiIntegrationTest.kt`, `_kotlin/backend/src/main/kotlin/com/onyx/foss/kotlin/service/FileStorageService.kt`.
 - Risk: A rejected upload can consume persistent disk space without tracked asset rows.

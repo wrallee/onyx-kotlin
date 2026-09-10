@@ -84,6 +84,8 @@ class GithubConnectorLoader(
         private const val RATE_LIMIT_HEARTBEAT_MILLIS = 15_000L
         private const val MAX_REPOSITORIES = 10_000
         private const val MAX_FILE_PATHS = 100_000
+        private const val MAX_REVIEW_COMMENTS = 10_000
+        private const val MAX_REVIEW_COMMENT_BYTES = 8L * 1024 * 1024
         private const val MAX_CHECKPOINT_BYTES = 8 * 1024 * 1024
         private val INDEXABLE_EXTENSIONS = setOf("md", "mdx", "markdown", "rst", "txt")
         private val INDEXABLE_NAMES = setOf(
@@ -391,7 +393,12 @@ class GithubConnectorLoader(
                 documents += if (slim) {
                     slimDocument(documentItem, access)
                 } else {
-                    collectionDocument(repository, documentItem, type, access)
+                    val reviewComments = if (type == CollectionType.PULL_REQUEST) {
+                        fetchReviewComments(context, documentItem)
+                    } else {
+                        ""
+                    }
+                    collectionDocument(repository, documentItem, type, access, reviewComments)
                 }
             } catch (error: Exception) {
                 val link = item.text("html_url")
@@ -596,6 +603,7 @@ class GithubConnectorLoader(
         item: JsonNode,
         type: CollectionType,
         access: ExternalAccess?,
+        reviewComments: String,
     ): SourceDocument {
         val number = item.path("number").asInt()
         require(number > 0) { "GitHub ${type.label} number is missing" }
@@ -626,7 +634,9 @@ class GithubConnectorLoader(
         return SourceDocument(
             id = link,
             title = "$number: $title",
-            content = item.path("body").asString(),
+            content = listOf(item.path("body").asString(), reviewComments)
+                .filter(String::isNotBlank)
+                .joinToString("\n\n"),
             link = link,
             metadata = metadata,
             externalAccess = access,
@@ -635,6 +645,41 @@ class GithubConnectorLoader(
             primaryOwners = listOfNotNull(author),
             secondaryOwners = assignees,
         )
+    }
+
+    private fun fetchReviewComments(context: Context, pullRequest: JsonNode): String {
+        if (pullRequest.path("review_comments").asInt() == 0) return ""
+        val firstPath = pullRequest.text("review_comments_url")?.let { safeCursorPath(context.base, it) }
+            ?: return ""
+        var path: String? = firstPath + if ('?' in firstPath) "&per_page=100" else "?per_page=100"
+        val comments = StringBuilder()
+        val visited = mutableSetOf<String>()
+        var commentCount = 0
+        var commentBytes = 0L
+        while (path != null) {
+            require(visited.add(path)) { "GitHub review comment pagination cycle detected" }
+            val response = get(context, path)
+            require(response.body.isArray) { "GitHub review comment response was not an array" }
+            commentCount += response.body.size()
+            if (commentCount > MAX_REVIEW_COMMENTS) {
+                throw GithubConnectorValidationException(
+                    "GitHub review comment limit exceeded: count exceeds $MAX_REVIEW_COMMENTS",
+                )
+            }
+            response.body.forEach { comment ->
+                val body = comment.text("body") ?: return@forEach
+                commentBytes += body.toByteArray(StandardCharsets.UTF_8).size
+                if (commentBytes > MAX_REVIEW_COMMENT_BYTES) {
+                    throw GithubConnectorValidationException(
+                        "GitHub review comment limit exceeded: content exceeds $MAX_REVIEW_COMMENT_BYTES bytes",
+                    )
+                }
+                if (comments.isNotEmpty()) comments.append("\n\n")
+                comments.append("Review comment:\n").append(body)
+            }
+            path = nextCursor(response.headers, context.base)
+        }
+        return comments.toString()
     }
 
     private fun slimDocument(item: JsonNode, access: ExternalAccess?): SourceDocument {
@@ -982,13 +1027,25 @@ class GithubConnectorLoader(
     }
 
     private fun safeCursorPath(base: String, cursor: String): String {
-        if (cursor.startsWith('/')) return cursor
         val baseUri = URI.create(base)
         val cursorUri = URI.create(cursor)
-        require(baseUri.scheme.equals(cursorUri.scheme, true) && baseUri.authority.equals(cursorUri.authority, true)) {
-            "GitHub cursor points outside the configured server"
+        if (cursorUri.isAbsolute) {
+            require(baseUri.scheme.equals(cursorUri.scheme, true) && baseUri.authority.equals(cursorUri.authority, true)) {
+                "GitHub cursor points outside the configured server"
+            }
+        } else {
+            require(cursorUri.authority == null && cursorUri.rawPath.startsWith('/')) {
+                "GitHub cursor must be an absolute URL or root-relative path"
+            }
         }
-        return cursorUri.rawPath + cursorUri.rawQuery?.let { "?$it" }.orEmpty()
+        val basePath = baseUri.rawPath.trimEnd('/')
+        val cursorPath = cursorUri.rawPath
+        val path = if (basePath.isNotEmpty() && (cursorPath == basePath || cursorPath.startsWith("$basePath/"))) {
+            cursorPath.removePrefix(basePath).ifEmpty { "/" }
+        } else {
+            cursorPath
+        }
+        return path + cursorUri.rawQuery?.let { "?$it" }.orEmpty()
     }
 
     private fun userInfo(node: JsonNode): Map<String, String> = listOf("login", "name", "email")

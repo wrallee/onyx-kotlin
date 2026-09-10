@@ -11,6 +11,8 @@ import com.onyx.foss.kotlin.domain.FileAssetRepository
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile
 import java.io.InputStream
 import java.nio.file.Files
@@ -181,8 +183,12 @@ class FileStorageService(
         val assetId = UUID.randomUUID().toString()
         val path = root.resolve(assetId).normalize()
         if (!path.startsWith(root)) error("Invalid file storage path")
-        Files.copy(input, path, StandardCopyOption.REPLACE_EXISTING)
-        return fileAssets.save(
+        try {
+            Files.copy(input, path, StandardCopyOption.REPLACE_EXISTING)
+        } catch (error: Exception) {
+            deleteAndRethrow(path, error)
+        }
+        return saveAsset(
             FileAssetEntity(
                 id = assetId,
                 originalName = name,
@@ -190,6 +196,7 @@ class FileStorageService(
                 byteSize = size,
                 storagePath = path.toString(),
             ),
+            path,
         )
     }
 
@@ -211,13 +218,46 @@ class FileStorageService(
                 }
             }
         } catch (error: Exception) {
-            Files.deleteIfExists(path)
-            throw error
+            deleteAndRethrow(path, error)
         }
         return StoredZipEntry(
-            fileAssets.save(FileAssetEntity(assetId, name, contentType, extractedBytes - priorBytes, path.toString())),
+            saveAsset(
+                FileAssetEntity(assetId, name, contentType, extractedBytes - priorBytes, path.toString()),
+                path,
+            ),
             extractedBytes,
         )
+    }
+
+    private fun saveAsset(asset: FileAssetEntity, path: Path): FileAssetEntity {
+        val saved = try {
+            fileAssets.save(asset)
+        } catch (error: Exception) {
+            deleteAndRethrow(path, error)
+        }
+        try {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(
+                    object : TransactionSynchronization {
+                        override fun afterCompletion(status: Int) {
+                            if (status == TransactionSynchronization.STATUS_ROLLED_BACK) Files.deleteIfExists(path)
+                        }
+                    },
+                )
+            }
+        } catch (error: Exception) {
+            deleteAndRethrow(path, error)
+        }
+        return saved
+    }
+
+    private fun deleteAndRethrow(path: Path, error: Exception): Nothing {
+        try {
+            Files.deleteIfExists(path)
+        } catch (cleanupError: Exception) {
+            error.addSuppressed(cleanupError)
+        }
+        throw error
     }
 
     private fun mergeMetadata(existingId: String?, newId: String?, names: Set<String>): String? {

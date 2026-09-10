@@ -2,6 +2,7 @@ package com.onyx.foss.kotlin.api
 
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
+import com.onyx.foss.kotlin.config.OnyxProperties
 import com.onyx.foss.kotlin.domain.ConnectorCredentialPairRepository
 import com.onyx.foss.kotlin.domain.ConnectorRepository
 import com.onyx.foss.kotlin.domain.CredentialRepository
@@ -60,6 +61,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
     @Autowired private lateinit var documents: IndexedDocumentRepository
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var storedFiles: FileStorageService
+    @Autowired private lateinit var properties: OnyxProperties
     @MockitoBean private lateinit var indexer: OpenSearchIndexer
 
     @BeforeEach
@@ -633,6 +635,26 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         assertThat(response.status).isEqualTo(400)
     }
 
+    @Test
+    fun failedZipUploadRemovesFilesCreatedByTheRolledBackRequest() {
+        val storageRoot = java.nio.file.Path.of(properties.storage.root).toAbsolutePath().normalize()
+        val filesBefore = Files.list(storageRoot).use { paths ->
+            paths.map { path -> path.fileName.toString() }.toList().toSet()
+        }
+
+        val response = request(
+            multipart("/manage/admin/connector/file/upload")
+                .file(MockMultipartFile("files", "rollback.zip", "application/zip", rollbackZipFile())),
+        )
+        val filesAfter = Files.list(storageRoot).use { paths ->
+            paths.map { path -> path.fileName.toString() }.toList().toSet()
+        }
+
+        assertThat(response.status).isEqualTo(400)
+        assertThat(filesAfter).isEqualTo(filesBefore)
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_assets", Long::class.java) ?: -1L).isZero()
+    }
+
     private fun createCredential(source: String, token: String): Long =
         postJson("/manage/credential", credential(source, token)).body.path("id").asLong()
 
@@ -650,6 +672,21 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
 
     private fun oversizedZipFile(): ByteArray = ByteArrayOutputStream().use { bytes ->
         ZipOutputStream(bytes).use { zip ->
+            zip.putNextEntry(ZipEntry("large.txt"))
+            repeat(101) { zip.write(ByteArray(1024 * 1024)) }
+            zip.closeEntry()
+        }
+        bytes.toByteArray()
+    }
+
+    private fun rollbackZipFile(): ByteArray = ByteArrayOutputStream().use { bytes ->
+        ZipOutputStream(bytes).use { zip ->
+            zip.putNextEntry(ZipEntry(".onyx_metadata.json"))
+            zip.write("""[{"filename":"one.txt","file_display_name":"One"}]""".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("one.txt"))
+            zip.write("one".toByteArray())
+            zip.closeEntry()
             zip.putNextEntry(ZipEntry("large.txt"))
             repeat(101) { zip.write(ByteArray(1024 * 1024)) }
             zip.closeEntry()
