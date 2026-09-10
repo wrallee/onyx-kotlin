@@ -1,6 +1,7 @@
 package com.onyx.foss.kotlin.ingestion
 
 import tools.jackson.databind.JsonNode
+import tools.jackson.databind.node.ObjectNode
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import okhttp3.mockwebserver.Dispatcher
@@ -228,11 +229,28 @@ class GithubConnectorLoaderTest {
                     "/repos/test-org/test-repo/pulls" -> json(
                         """[{"id":70,"number":7,"title":"PR 7","html_url":"https://github.test/test-org/test-repo/pull/7","updated_at":"2026-01-02T00:00:00Z"}]""",
                     )
-                    "/repos/test-org/test-repo/pulls/7" -> json(
-                        pull(7, body = "detail body").replace("\"merged\":false", "\"merged\":true")
-                            .replace("\"commits\":2", "\"commits\":8")
-                            .replace("\"changed_files\":3", "\"changed_files\":9"),
-                    )
+                    "/repos/test-org/test-repo/pulls/7" -> {
+                        val detail = (mapper.readTree(pull(7, body = "detail body")).deepCopy() as ObjectNode)
+                            .put(
+                                "review_comments_url",
+                                server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
+                            )
+                            .put("merged", true)
+                            .put("commits", 8)
+                            .put("changed_files", 9)
+                        json(mapper.writeValueAsString(detail))
+                    }
+                    "/repos/test-org/test-repo/pulls/7/comments" -> {
+                        val page = request.requestUrl!!.queryParameter("page")
+                        if (page == "2") {
+                            json("""[{"body":"second review comment"}]""")
+                        } else {
+                            json("""[{"body":"first review comment"}]""").setHeader(
+                                "Link",
+                                "<${server.url("/repos/test-org/test-repo/pulls/7/comments?page=2")}>; rel=\"next\"",
+                            )
+                        }
+                    }
                     else -> json("[]")
                 }
             }
@@ -240,11 +258,14 @@ class GithubConnectorLoaderTest {
 
         val document = loader().load(config(server), credentials(), null).flatMap { it.documents }.single()
 
-        assertEquals("detail body", document.content)
+        assertEquals(
+            "detail body\n\nReview comment:\nfirst review comment\n\nReview comment:\nsecond review comment",
+            document.content,
+        )
         assertEquals(true, document.metadata["merged"])
         assertEquals(8, document.metadata["num_commits"])
         assertEquals(9, document.metadata["num_files_changed"])
-        assertTrue(requested.any { it.startsWith("/repos/test-org/test-repo/pulls/7") })
+        assertTrue(requested.any { it.startsWith("/repos/test-org/test-repo/pulls/7/comments") })
     }
 
     @Test

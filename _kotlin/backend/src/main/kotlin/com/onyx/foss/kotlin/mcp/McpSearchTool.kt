@@ -4,7 +4,6 @@ import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import com.onyx.foss.kotlin.service.SearchResponse
-import com.onyx.foss.kotlin.service.SearchResult
 import com.onyx.foss.kotlin.service.SearchService
 import com.onyx.foss.kotlin.service.SearchType
 import io.modelcontextprotocol.spec.McpSchema
@@ -17,8 +16,8 @@ class McpSearchTool(
     private val search: SearchService,
     private val mapper: ObjectMapper,
 ) {
-    fun searchDefinition(name: String = TOOL_SEARCH_INDEXED_DOCUMENTS): McpSchema.Tool =
-        McpSchema.Tool.builder(name, SEARCH_INPUT_SCHEMA)
+    fun searchDefinition(): McpSchema.Tool =
+        McpSchema.Tool.builder(TOOL_SEARCH_INDEXED_DOCUMENTS, SEARCH_INPUT_SCHEMA)
             .description(SEARCH_TOOL_DESCRIPTION)
             .build()
 
@@ -37,14 +36,18 @@ class McpSearchTool(
         defaultDocumentSets: List<String> = emptyList(),
     ): McpSchema.CallToolResult = try {
         val query = arguments["query"] as? String ?: throw IllegalArgumentException("query must be a string")
-        val requestedSets = ((arguments["document_set_names"] ?: arguments["document_sets"]) as? List<*>)?.map {
-            it as? String ?: throw IllegalArgumentException("document_sets must contain strings")
+        val requestedSets = arguments["document_set_names"]?.let { raw ->
+            val values = raw as? List<*>
+                ?: throw IllegalArgumentException("document_set_names must be a list")
+            values.map {
+                it as? String ?: throw IllegalArgumentException("document_set_names must contain strings")
+            }
         }
         val documentSets = if (!requestedSets.isNullOrEmpty()) requestedSets else defaultDocumentSets
         val limit = parseLimit(arguments["limit"])
         val searchTypeStr = arguments["search_type"] as? String
         val searchType = SearchType.fromString(searchTypeStr)
-        val sourceTypes = parseSourceTypes(arguments["source_types"] as? List<*>)
+        val sourceTypes = parseSourceTypes(arguments["source_types"])
         val timeCutoff = parseTimeCutoff(arguments["time_cutoff"] as? String)
 
         val response = search.search(query, documentSets, limit, searchType, sourceTypes, timeCutoff)
@@ -79,11 +82,15 @@ class McpSearchTool(
             .build()
     }
 
-    private fun parseSourceTypes(raw: List<*>?): List<String> =
-        raw.orEmpty().mapNotNull { entry ->
-            val value = entry as? String ?: return@mapNotNull null
-            runCatching { ConnectorSource.fromValue(value) }.getOrNull()?.value
+    private fun parseSourceTypes(raw: Any?): List<String> {
+        if (raw == null) return emptyList()
+        val values = raw as? List<*> ?: throw IllegalArgumentException("source_types must be a list")
+        return values.map { entry ->
+            val value = entry as? String
+                ?: throw IllegalArgumentException("source_types must contain strings")
+            ConnectorSource.fromValue(value).value
         }
+    }
 
     private fun parseLimit(raw: Any?): Int = when (raw) {
         null -> SearchService.DEFAULT_RESULTS
@@ -158,7 +165,6 @@ class McpSearchTool(
 
     companion object {
         const val TOOL_SEARCH_INDEXED_DOCUMENTS = "search_indexed_documents"
-        const val TOOL_SEARCH_LEGACY = "search"
         const val TOOL_WEIGHTED_RRF = "weighted_reciprocal_rank_fusion"
         const val TOOL_GET_DOCUMENT_CONTEXT = "get_document_context"
 
@@ -188,8 +194,8 @@ pipeline):
   do not blindly fuse all lists into one ranking.
 
 `document_set_names` restricts results to named Document Sets. `source_types` restricts
-to connector types (e.g. "jira", "github", "confluence", "file"); unrecognized values are
-ignored rather than erroring. `time_cutoff` (ISO 8601) returns only documents updated on
+to connector types ("jira", "github", "confluence", or "file"); unrecognized values fail
+the call. `time_cutoff` (ISO 8601) returns only documents updated on
 or after that moment; naive timestamps are treated as UTC. An unparseable `time_cutoff` is
 ignored (search proceeds without the filter) rather than failing the call."""
 
@@ -219,14 +225,12 @@ coverage for each subquestion instead."""
                 "query" to mapOf("type" to "string", "minLength" to 1),
                 "source_types" to mapOf(
                     "type" to "array",
-                    "items" to mapOf("type" to "string"),
+                    "items" to mapOf(
+                        "type" to "string",
+                        "enum" to ConnectorSource.entries.map(ConnectorSource::value),
+                    ),
                 ),
                 "document_set_names" to mapOf(
-                    "type" to "array",
-                    "items" to mapOf("type" to "string", "minLength" to 1),
-                    "uniqueItems" to true,
-                ),
-                "document_sets" to mapOf(
                     "type" to "array",
                     "items" to mapOf("type" to "string", "minLength" to 1),
                     "uniqueItems" to true,

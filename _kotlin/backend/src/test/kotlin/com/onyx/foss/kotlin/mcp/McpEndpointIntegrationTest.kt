@@ -51,7 +51,6 @@ class McpEndpointIntegrationTest {
             val initialized = client.initialize()
             assertThat(initialized.serverInfo().name()).isEqualTo("onyx-search")
             assertThat(client.listTools().tools().map(McpSchema.Tool::name)).containsExactlyInAnyOrder(
-                "search",
                 "search_indexed_documents",
                 "weighted_reciprocal_rank_fusion",
                 "get_document_context",
@@ -86,7 +85,7 @@ class McpEndpointIntegrationTest {
         McpClient.sync(transport).requestTimeout(Duration.ofSeconds(10)).build().use { client ->
             client.initialize()
             val result = client.callTool(
-                McpSchema.CallToolRequest.builder("search")
+                McpSchema.CallToolRequest.builder("search_indexed_documents")
                     .arguments(mapOf("query" to "guide", "limit" to 5))
                     .build(),
             )
@@ -108,7 +107,7 @@ class McpEndpointIntegrationTest {
         McpClient.sync(transport).requestTimeout(Duration.ofSeconds(10)).build().use { client ->
             client.initialize()
             val result = client.callTool(
-                McpSchema.CallToolRequest.builder("search")
+                McpSchema.CallToolRequest.builder("search_indexed_documents")
                     .arguments(mapOf("query" to "guide", "limit" to 5))
                     .build(),
             )
@@ -131,7 +130,7 @@ class McpEndpointIntegrationTest {
         McpClient.sync(transport).requestTimeout(Duration.ofSeconds(10)).build().use { client ->
             client.initialize()
             val result = client.callTool(
-                McpSchema.CallToolRequest.builder("search")
+                McpSchema.CallToolRequest.builder("search_indexed_documents")
                     .arguments(mapOf("query" to "guide", "limit" to 5))
                     .build(),
             )
