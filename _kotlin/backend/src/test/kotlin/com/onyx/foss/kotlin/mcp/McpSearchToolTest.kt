@@ -200,6 +200,7 @@ class McpSearchToolTest {
             val response = SearchResponse(
                 results = List(limit) { index ->
                     SearchResult(
+                        id = "chunk-$index",
                         sourceDocumentId = "doc-$index",
                         chunkId = index,
                         title = "Result $index",
@@ -236,41 +237,38 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `context tool forwards document, chunk and window arguments`() {
-        val response = DocumentContextResponse("doc-1", emptyList())
-        `when`(search.getDocumentContext("doc-1", 5, 1, 3)).thenReturn(response)
+    fun `context tool forwards result id and window arguments`() {
+        val response = DocumentContextResponse("chunk-5", "doc-1", emptyList())
+        `when`(search.getDocumentContext("chunk-5", 1, 3)).thenReturn(response)
 
         val result = tool.callGetDocumentContext(
             mapOf(
-                "source_document_id" to "doc-1",
-                "chunk_id" to 5,
+                "id" to "chunk-5",
                 "chunks_above" to 1,
                 "chunks_below" to 3,
             ),
         )
 
-        verify(search).getDocumentContext("doc-1", 5, 1, 3)
+        verify(search).getDocumentContext("chunk-5", 1, 3)
         assertThat(result.isError() == true).isFalse()
         assertThat(tool.contextDefinition().name()).isEqualTo("get_document_context")
     }
 
     @Test
     fun `context tool uses default window when not specified`() {
-        val response = DocumentContextResponse("doc-1", emptyList())
+        val response = DocumentContextResponse("chunk-5", "doc-1", emptyList())
         `when`(
             search.getDocumentContext(
-                "doc-1",
-                5,
+                "chunk-5",
                 SearchService.DEFAULT_CONTEXT_CHUNKS,
                 SearchService.DEFAULT_CONTEXT_CHUNKS,
             ),
         ).thenReturn(response)
 
-        val result = tool.callGetDocumentContext(mapOf("source_document_id" to "doc-1", "chunk_id" to 5))
+        val result = tool.callGetDocumentContext(mapOf("id" to "chunk-5"))
 
         verify(search).getDocumentContext(
-            "doc-1",
-            5,
+            "chunk-5",
             SearchService.DEFAULT_CONTEXT_CHUNKS,
             SearchService.DEFAULT_CONTEXT_CHUNKS,
         )

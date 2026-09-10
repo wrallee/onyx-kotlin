@@ -67,8 +67,9 @@ Do not concatenate content. Use `get_document_context` for surrounding chunks.
 
 ## MCP result contract
 
-Search returns identifiers, metadata, score, and a bounded excerpt. It does not
-return full chunk content. Use `get_document_context` as the detailed read step.
+Search returns an opaque indexed-chunk ID, metadata, score, and a bounded excerpt.
+It does not return full chunk content. Pass the ID to `get_document_context` so
+the detailed read stays within the selected connector-credential copy.
 
 ## Non-goals
 

@@ -583,6 +583,7 @@ data class SearchCandidate(
     val link: String?,
     val metadata: JsonNode,
     val retrievalScore: Double,
+    val ccPairId: Long? = null,
 )
 
 internal val DOCUMENT_SET_UPDATE_TIMEOUT: Duration = Duration.ofSeconds(30)

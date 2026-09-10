@@ -59,6 +59,7 @@ data class OpenSearchChunkDocument(
         }
         return com.onyx.foss.kotlin.ingestion.SearchCandidate(
             id = id,
+            ccPairId = ccPairId,
             sourceDocumentId = sourceDocumentId ?: "",
             chunkId = chunkId ?: 0,
             title = title ?: "",

@@ -63,14 +63,12 @@ class McpSearchTool(
     }
 
     fun callGetDocumentContext(arguments: Map<String, Any>): McpSchema.CallToolResult = try {
-        val sourceDocumentId = arguments["source_document_id"] as? String
-            ?: throw IllegalArgumentException("source_document_id must be a string")
-        val chunkId = (arguments["chunk_id"] as? Number)?.toInt()
-            ?: throw IllegalArgumentException("chunk_id must be an integer")
+        val id = arguments["id"] as? String
+            ?: throw IllegalArgumentException("id must be a string")
         val chunksAbove = (arguments["chunks_above"] as? Number)?.toInt() ?: SearchService.DEFAULT_CONTEXT_CHUNKS
         val chunksBelow = (arguments["chunks_below"] as? Number)?.toInt() ?: SearchService.DEFAULT_CONTEXT_CHUNKS
 
-        val response = search.getDocumentContext(sourceDocumentId, chunkId, chunksAbove, chunksBelow)
+        val response = search.getDocumentContext(id, chunksAbove, chunksBelow)
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
             .structuredContent(response)
@@ -149,6 +147,7 @@ class McpSearchTool(
     }
 
     private fun extractItemId(item: Map<String, Any?>): String? {
+        (item["id"] as? String)?.takeIf(String::isNotBlank)?.let { return it }
         val documentId = extractDocumentId(item)?.takeIf(String::isNotBlank) ?: return null
         val chunkId = extractChunkId(item)?.takeIf { it >= 0 } ?: return null
         return "${documentId}_$chunkId"
@@ -177,7 +176,7 @@ the user for information it can supply.
 
 This is the discovery step of a two-step retrieval flow. Each result contains metadata and
 a short excerpt, not the full indexed chunk. Select relevant results, then call
-`get_document_context` with each result's `source_document_id` and `chunk_id` before answering.
+`get_document_context` with each result's `id` before answering.
 
 Search strategy (you are the agent — this tool is a retrieval primitive, not a full
 pipeline):
@@ -206,7 +205,7 @@ Use this when a search result's `excerpt` is truncated, cuts off mid-sentence, o
 need more surrounding text to judge relevance or answer accurately — this is how you
 recover the context an internal chat agent would otherwise pre-expand for you.
 
-`source_document_id` and `chunk_id` come from a prior search result. `chunks_above` and
+`id` comes from a prior search result and identifies its exact indexed chunk. `chunks_above` and
 `chunks_below` (default 2 each, max 10 each) control how many neighboring chunks to
 retrieve on each side. Returns chunks ordered by `chunk_id`; concatenate their `content`
 for continuous reading."""
@@ -281,12 +280,11 @@ coverage for each subquestion instead."""
         val CONTEXT_INPUT_SCHEMA: Map<String, Any> = mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "source_document_id" to mapOf("type" to "string", "minLength" to 1),
-                "chunk_id" to mapOf("type" to "integer", "minimum" to 0),
+                "id" to mapOf("type" to "string", "minLength" to 1, "maxLength" to SearchService.MAX_RESULT_ID_CHARS),
                 "chunks_above" to mapOf("type" to "integer", "minimum" to 0, "maximum" to 10, "default" to 2),
                 "chunks_below" to mapOf("type" to "integer", "minimum" to 0, "maximum" to 10, "default" to 2),
             ),
-            "required" to listOf("source_document_id", "chunk_id"),
+            "required" to listOf("id"),
             "additionalProperties" to false,
         )
     }
