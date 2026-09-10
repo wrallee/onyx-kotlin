@@ -6,7 +6,8 @@ import com.onyx.foss.kotlin.domain.ConnectorSource
 import org.springframework.http.HttpHeaders
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
-import org.springframework.web.reactive.function.client.WebClientResponseException
+import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.RestClientResponseException as WebClientResponseException
 import org.springframework.web.util.UriUtils
 import java.net.URI
 import java.nio.ByteBuffer
@@ -174,7 +175,7 @@ class GithubConnectorLoader(
                 "/orgs/${segment(context.owner)}/repos?per_page=1&page=1",
                 context.headers,
             )
-        } catch (error: WebClientResponseException.NotFound) {
+        } catch (error: HttpClientErrorException.NotFound) {
             try {
                 context.heartbeat()
                 http.get(
@@ -273,7 +274,7 @@ class GithubConnectorLoader(
             val repositoryName = context.repositoryNames[checkpoint.repositoryIndex]
             val repository = try {
                 parseRepository(get(context, repositoryPath(context.owner, repositoryName)).body, context)
-            } catch (_: WebClientResponseException.NotFound) {
+            } catch (_: HttpClientErrorException.NotFound) {
                 return ProcessResult(
                     failures = listOf(
                         ConnectorFailure(
@@ -309,7 +310,7 @@ class GithubConnectorLoader(
                 context,
                 "/$ownerKind/${segment(context.owner)}/repos?per_page=$PAGE_SIZE&page=${checkpoint.repositoryPage}",
             ).body
-        } catch (error: WebClientResponseException.NotFound) {
+        } catch (error: HttpClientErrorException.NotFound) {
             if (ownerKind != "orgs") throw validationError(error, context)
             resolvedOwnerKind = "users"
             get(
@@ -364,7 +365,7 @@ class GithubConnectorLoader(
         }
         val page = try {
             fetchCollectionPage(context, repository, type, pageNumber, cursor, retrieved)
-        } catch (error: WebClientResponseException.NotFound) {
+        } catch (error: HttpClientErrorException.NotFound) {
             CollectionPage(emptyList(), rawSize = 0, nextCursor = null, cursorMode = cursor != null)
         }
         val access = checkpointAccess(context, checkpoint, repository)
@@ -457,7 +458,7 @@ class GithubConnectorLoader(
                     nextCursor(response.headers, context.base),
                     cursorMode = true,
                 )
-            } catch (error: WebClientResponseException.UnprocessableContent) {
+            } catch (error: HttpClientErrorException.UnprocessableContent) {
                 if (!error.responseBodyAsString.contains("cursor", ignoreCase = true)) throw error
                 val restartPage = (retrieved / PAGE_SIZE) + 1
                 val response = get(context, "$endpoint?$query&page=$restartPage")
@@ -479,7 +480,7 @@ class GithubConnectorLoader(
                 nextCursor(response.headers, context.base),
                 cursorMode = false,
             )
-        } catch (error: WebClientResponseException.UnprocessableContent) {
+        } catch (error: HttpClientErrorException.UnprocessableContent) {
             if (!error.responseBodyAsString.contains("cursor", ignoreCase = true)) throw error
             val response = get(context, "$endpoint?$query")
             CollectionPage(
@@ -932,7 +933,7 @@ class GithubConnectorLoader(
             return http.getResponse(context.base, path, context.headers)
         } catch (error: WebClientResponseException) {
             if (!isRateLimited(error)) throw error
-            val reset = error.headers.getFirst("X-RateLimit-Reset")?.toLongOrNull()
+            val reset = error.responseHeaders?.getFirst("X-RateLimit-Reset")?.toLongOrNull()
                 ?: throw GithubRateLimitValidationException("GitHub rate limit response did not include a reset time.", error)
             val waitSeconds = try {
                 Math.subtractExact(reset, nowSource().epochSecond)
@@ -959,7 +960,7 @@ class GithubConnectorLoader(
 
     private fun isRateLimited(error: WebClientResponseException): Boolean =
         error.statusCode.value() in setOf(403, 429) && (
-            error.headers.getFirst("X-RateLimit-Remaining") == "0" ||
+            error.responseHeaders?.getFirst("X-RateLimit-Remaining") == "0" ||
                 error.responseBodyAsString.contains("rate limit", ignoreCase = true)
             )
 

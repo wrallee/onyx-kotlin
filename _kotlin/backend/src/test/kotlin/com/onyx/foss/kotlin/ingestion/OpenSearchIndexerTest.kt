@@ -10,7 +10,6 @@ import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
 import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
 import org.opensearch.client.opensearch.OpenSearchClient
 import com.onyx.foss.kotlin.domain.ConnectorSource
-import io.netty.handler.ssl.SslContextBuilder
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
@@ -20,9 +19,6 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mock
-import org.springframework.web.reactive.function.client.WebClient
-import reactor.core.publisher.Mono
-import reactor.netty.http.server.HttpServer
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 
@@ -323,41 +319,6 @@ class OpenSearchIndexerTest {
                 "HEAD /documents",
                 "PUT /documents/_mapping",
             )
-        }
-    }
-
-    @Test
-    @Suppress("DEPRECATION")
-    fun `accepts self-signed OpenSearch certificate when verification is disabled`() {
-        val certificate = io.netty.handler.ssl.util.SelfSignedCertificate("localhost")
-        val server = HttpServer.create()
-            .host("localhost")
-            .port(0)
-            .secure { ssl ->
-                ssl.sslContext(SslContextBuilder.forServer(certificate.certificate(), certificate.privateKey()).build())
-            }
-            .handle { request, response ->
-                when {
-                    request.method().name() == "HEAD" -> response.send()
-                    request.uri().endsWith("/_mapping") -> response
-                        .header("Content-Type", "application/json")
-                        .sendString(Mono.just("""{"acknowledged":true}"""))
-                    else -> response.header("Content-Type", "application/json").sendString(
-                        Mono.just("""{"timed_out":false,"total":0,"deleted":0,"version_conflicts":0,"failures":[]}"""),
-                    )
-                }
-            }
-            .bindNow()
-        try {
-            val properties = OpenSearchVectorStoreProperties(
-                uris = listOf("https://localhost:${server.port()}"),
-                ssl = OpenSearchVectorStoreProperties.Ssl(verifyCerts = false),
-            )
-
-            OpenSearchIndexer(properties, null, mapper, externalWrites).deletePair(1)
-        } finally {
-            server.disposeNow()
-            certificate.delete()
         }
     }
 

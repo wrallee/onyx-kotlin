@@ -22,21 +22,15 @@ import com.onyx.foss.kotlin.domain.IngestionJobRepository
 import com.onyx.foss.kotlin.domain.JobState
 import com.onyx.foss.kotlin.domain.PairStatus
 import com.onyx.foss.kotlin.service.AdminService
-import io.netty.handler.ssl.SslContextBuilder
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.http.MediaType
-import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClientRequestException
-import org.springframework.web.reactive.function.client.WebClientResponseException
-import reactor.core.publisher.Mono
-import reactor.netty.http.client.HttpClient
-import reactor.util.retry.Retry
+import org.springframework.web.client.ResourceAccessException
+import org.springframework.web.client.RestClient
+import org.springframework.web.client.RestClientResponseException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Duration
@@ -526,15 +520,9 @@ private fun ConnectorFailure.toEntity(attemptId: Long): IngestionErrorEntity = w
 @Service
 class ModelServerClient(
     private val properties: OnyxProperties,
-    clientBuilder: WebClient.Builder,
+    clientBuilder: RestClient.Builder,
 ) {
-    private companion object {
-        const val MAX_RESPONSE_BYTES = 16 * 1024 * 1024
-    }
-
-    private val client = clientBuilder.clone().codecs { codecs ->
-        codecs.defaultCodecs().maxInMemorySize(MAX_RESPONSE_BYTES)
-    }.buildModelServerClient(properties.modelServer)
+    private val client = clientBuilder.buildModelServerClient(properties.modelServer)
 
     fun embed(texts: List<String>): List<List<Double>> = embed(texts, "passage")
 
@@ -544,32 +532,40 @@ class ModelServerClient(
         require(properties.modelServer.modelName.isNotBlank()) {
             "ONYX_EMBEDDING_MODEL_NAME must be configured before file ingestion"
         }
-        val response = client.post()
-            .uri(properties.modelServer.baseUrl.trimEnd('/') + "/encoder/bi-encoder-embed")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(
-                mapOf(
-                    "texts" to texts,
-                    "model_name" to properties.modelServer.modelName,
-                    "max_context_length" to properties.modelServer.maxContextLength,
-                    "normalize_embeddings" to properties.modelServer.normalizeEmbeddings,
-                    "text_type" to textType,
-                ),
-            )
-            .retrieve()
-            .bodyToMono(JsonNode::class.java)
-            // Model server requests can experience transient network blips or brief 5xx errors;
-            // retrying with backoff allows temporary connection failures to recover cleanly.
-            .retryWhen(
-                Retry.backoff(
-                    properties.modelServer.embedMaxRetries.toLong(),
-                    Duration.ofMillis(properties.modelServer.embedRetryInitialBackoffMs),
-                )
-                    .jitter(0.0)
-                    .filter { it is WebClientRequestException || (it is WebClientResponseException && it.statusCode.is5xxServerError) }
-                    .onRetryExhaustedThrow { _, signal -> signal.failure() }
-            )
-            .block() ?: error("Model server returned no embedding response")
+        var attempt = 0
+        var backoffMillis = properties.modelServer.embedRetryInitialBackoffMs
+        var response: JsonNode
+        while (true) {
+            try {
+                response = client.post()
+                    .uri(properties.modelServer.baseUrl.trimEnd('/') + "/encoder/bi-encoder-embed")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(
+                        mapOf(
+                            "texts" to texts,
+                            "model_name" to properties.modelServer.modelName,
+                            "max_context_length" to properties.modelServer.maxContextLength,
+                            "normalize_embeddings" to properties.modelServer.normalizeEmbeddings,
+                            "text_type" to textType,
+                        ),
+                    )
+                    .retrieve()
+                    .body(JsonNode::class.java) ?: error("Model server returned no embedding response")
+                break
+            } catch (error: RuntimeException) {
+                val retryable = error is ResourceAccessException ||
+                    (error is RestClientResponseException && error.statusCode.is5xxServerError)
+                if (!retryable || attempt >= properties.modelServer.embedMaxRetries) throw error
+                try {
+                    Thread.sleep(backoffMillis)
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw interrupted
+                }
+                attempt++
+                backoffMillis = backoffMillis.coerceAtMost(Long.MAX_VALUE / 2) * 2
+            }
+        }
         return response.path("embeddings").toList().map { vector -> vector.toList().map { it.asDouble() } }
     }
 }

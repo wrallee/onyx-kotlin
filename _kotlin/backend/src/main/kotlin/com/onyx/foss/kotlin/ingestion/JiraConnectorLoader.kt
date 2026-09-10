@@ -8,7 +8,7 @@ import com.onyx.foss.kotlin.domain.ConnectorSource
 import org.springframework.core.codec.DecodingException
 import org.springframework.http.HttpHeaders
 import org.springframework.stereotype.Service
-import org.springframework.web.reactive.function.client.WebClientResponseException
+import org.springframework.web.client.RestClientResponseException as WebClientResponseException
 import org.springframework.web.util.UriUtils
 import java.net.URI
 import java.nio.charset.StandardCharsets

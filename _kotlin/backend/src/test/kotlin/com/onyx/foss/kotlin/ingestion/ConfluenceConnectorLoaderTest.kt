@@ -8,10 +8,11 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.jupiter.api.Test
-import org.springframework.web.reactive.function.client.ClientRequest
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction
-import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClientResponseException
+import org.springframework.http.HttpRequest
+import org.springframework.http.client.ClientHttpRequestInterceptor
+import org.springframework.http.client.support.HttpRequestWrapper
+import org.springframework.web.client.RestClient
+import org.springframework.web.client.RestClientResponseException as WebClientResponseException
 import java.net.URI
 import java.time.Instant
 import java.time.ZoneOffset
@@ -101,7 +102,7 @@ class ConfluenceConnectorLoaderTest {
         server.enqueue(json("""{"cloudId":"cloud-1"}"""))
         server.enqueue(json(pageResponse()))
         server.enqueue(json("""{"results":[]}"""))
-        val http = RemoteJsonClient(WebClient.builder().filter(rewriteAtlassianRequestsTo(server)))
+        val http = RemoteJsonClient(RestClient.builder().requestInterceptor(rewriteAtlassianRequestsTo(server)))
 
         val document = ConfluenceConnectorLoader(http, mapper).load(
             config(server, "\"scoped_token\":true,\"is_cloud\":true,\"include_comments\":false"),
@@ -1035,7 +1036,7 @@ class ConfluenceConnectorLoaderTest {
     }
 
     private fun loader(): ConfluenceConnectorLoader =
-        ConfluenceConnectorLoader(RemoteJsonClient(WebClient.builder()), mapper).also { it.sleepMillis = {} }
+        ConfluenceConnectorLoader(RemoteJsonClient(RestClient.builder()), mapper).also { it.sleepMillis = {} }
 
     private fun config(server: MockWebServer, extra: String = "") = config(
         server.startAndBase(),
@@ -1263,13 +1264,17 @@ class ConfluenceConnectorLoaderTest {
     private fun MockWebServer.takeRequests(count: Int): List<RecordedRequest> =
         (1..count).map { takeRequest() }
 
-    private fun rewriteAtlassianRequestsTo(server: MockWebServer): ExchangeFilterFunction =
-        ExchangeFilterFunction.ofRequestProcessor { request ->
-            if (request.url().host != "api.atlassian.com") {
-                reactor.core.publisher.Mono.just(request)
+    private fun rewriteAtlassianRequestsTo(server: MockWebServer): ClientHttpRequestInterceptor =
+        ClientHttpRequestInterceptor { request, body, execution ->
+            val target = if (request.uri.host == "api.atlassian.com") {
+                server.url(request.uri.rawPath + (request.uri.rawQuery?.let { "?$it" } ?: "")).toUri()
             } else {
-                val local = server.url(request.url().rawPath + (request.url().rawQuery?.let { "?$it" } ?: ""))
-                reactor.core.publisher.Mono.just(ClientRequest.from(request).url(URI.create(local.toString())).build())
+                request.uri
             }
+            execution.execute(request.withUri(target), body)
         }
+
+    private fun HttpRequest.withUri(uri: URI): HttpRequest = object : HttpRequestWrapper(this) {
+        override fun getURI(): URI = uri
+    }
 }

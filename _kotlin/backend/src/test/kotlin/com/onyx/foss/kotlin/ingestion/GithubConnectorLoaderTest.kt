@@ -9,8 +9,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.jupiter.api.Test
-import org.springframework.web.reactive.function.client.WebClientResponseException
-import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.client.RestClient
 import java.time.Instant
 import java.util.Base64
 import kotlin.test.assertContains
@@ -1092,7 +1091,7 @@ class GithubConnectorLoaderTest {
     private fun loader(
         now: () -> Instant = Instant::now,
         sleep: (Long) -> Unit = {},
-    ) = GithubConnectorLoader(RemoteJsonClient(WebClient.builder()), mapper, sleep, now)
+    ) = GithubConnectorLoader(RemoteJsonClient(RestClient.builder()), mapper, sleep, now)
 
     private fun credentials(): JsonNode = mapper.readTree("""{"github_access_token":"token"}""")
 

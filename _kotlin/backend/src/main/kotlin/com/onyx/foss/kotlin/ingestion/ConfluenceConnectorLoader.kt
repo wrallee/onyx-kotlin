@@ -15,7 +15,8 @@ import org.apache.tika.parser.html.JSoupParser
 import org.apache.tika.sax.BodyContentHandler
 import org.springframework.http.HttpHeaders
 import org.springframework.stereotype.Service
-import org.springframework.web.reactive.function.client.WebClientResponseException
+import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.RestClientResponseException as WebClientResponseException
 import org.springframework.web.util.UriUtils
 import org.xml.sax.Attributes
 import org.xml.sax.helpers.DefaultHandler
@@ -66,7 +67,7 @@ class ConfluenceConnectorLoader(
         val first = try {
             val response = try {
                 get(context, path)
-            } catch (error: WebClientResponseException.NotFound) {
+            } catch (error: HttpClientErrorException.NotFound) {
                 if (!cloudV2) throw error
                 path = updateQuery("/rest/api/space", "limit", "1")
                 path = updateQuery(path, "start", "0")
@@ -783,7 +784,7 @@ class ConfluenceConnectorLoader(
     )
 
     private fun retryAfterMillis(error: WebClientResponseException, attempt: Int): Long {
-        val raw = error.headers.getFirst("Retry-After")
+        val raw = error.responseHeaders?.getFirst("Retry-After")
         val parsedSeconds = raw?.trim()?.toDoubleOrNull()?.takeIf(Double::isFinite)?.coerceAtLeast(0.0)
             ?: raw?.let { value ->
                 runCatching {
