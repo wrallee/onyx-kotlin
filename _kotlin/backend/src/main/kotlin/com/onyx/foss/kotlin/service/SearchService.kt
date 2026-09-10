@@ -20,7 +20,7 @@ class SearchService(
     fun search(
         query: String,
         documentSets: List<String> = emptyList(),
-        limit: Int = 10,
+        limit: Int = DEFAULT_RESULTS,
         searchType: SearchType = SearchType.HYBRID,
         sourceTypes: List<String> = emptyList(),
         timeCutoff: Instant? = null,
@@ -61,7 +61,7 @@ class SearchService(
         }
 
         return SearchResponse(
-            results = ranked.take(limit).map(SearchCandidate::toSearchResult),
+            results = ranked.take(limit).map { it.toSearchResult(query) },
         )
     }
 
@@ -158,39 +158,61 @@ class SearchService(
 
     @JvmOverloads
     fun getDocumentContext(
-        sourceDocumentId: String,
-        chunkId: Int,
+        id: String,
         chunksAbove: Int = DEFAULT_CONTEXT_CHUNKS,
         chunksBelow: Int = DEFAULT_CONTEXT_CHUNKS,
     ): DocumentContextResponse {
-        require(sourceDocumentId.isNotBlank()) { "source_document_id must not be blank" }
-        require(chunkId >= 0) { "chunk_id must not be negative" }
+        require(id.isNotBlank() && id.length <= MAX_RESULT_ID_CHARS) {
+            "id must contain 1 to $MAX_RESULT_ID_CHARS characters"
+        }
+        val selected = requireNotNull(indexer.chunkById(id)) { "Search result not found: $id" }
+        val ccPairId = requireNotNull(selected.ccPairId) { "Search result has no cc_pair_id: $id" }
         val above = chunksAbove.coerceIn(0, MAX_CONTEXT_CHUNKS)
         val below = chunksBelow.coerceIn(0, MAX_CONTEXT_CHUNKS)
-        val minChunkId = (chunkId - above).coerceAtLeast(0)
-        val maxChunkId = chunkId + below
-        val chunks = indexer.chunksInRange(sourceDocumentId, minChunkId, maxChunkId)
+        val minChunkId = (selected.chunkId - above).coerceAtLeast(0)
+        val maxChunkId = selected.chunkId + below
+        val chunks = indexer.chunksInRange(ccPairId, selected.sourceDocumentId, minChunkId, maxChunkId)
             .sortedBy { it.chunkId }
             .map { DocumentContextChunk(it.chunkId, it.content) }
-        return DocumentContextResponse(sourceDocumentId, chunks)
+        return DocumentContextResponse(id, selected.sourceDocumentId, chunks)
     }
 
     companion object {
-        const val MAX_RESULTS = 20
+        const val DEFAULT_RESULTS = 30
+        const val MAX_RESULTS = 50
+        const val MAX_SEARCH_EXCERPT_CHARS = 300
+        const val MAX_RESULT_ID_CHARS = 8192
         const val DEFAULT_CONTEXT_CHUNKS = 2
         const val MAX_CONTEXT_CHUNKS = 10
     }
 }
 
-private fun SearchCandidate.toSearchResult(): SearchResult = SearchResult(
+private fun SearchCandidate.toSearchResult(query: String): SearchResult = SearchResult(
+    id = id,
     sourceDocumentId = sourceDocumentId,
     chunkId = chunkId,
     title = title,
-    content = content,
+    excerpt = content.searchExcerpt(query),
     link = link,
     metadata = metadata,
     retrievalScore = retrievalScore,
 )
+
+private fun String.searchExcerpt(query: String): String {
+    val codePointCount = codePointCount(0, length)
+    if (codePointCount <= SearchService.MAX_SEARCH_EXCERPT_CHARS) return this
+    val match = indexOf(query, ignoreCase = true).takeIf { it >= 0 }
+        ?: query.split(Regex("\\s+")).asSequence()
+            .filter { it.length >= 3 }
+            .map { indexOf(it, ignoreCase = true) }
+            .firstOrNull { it >= 0 }
+        ?: 0
+    val matchCodePoint = codePointCount(0, match)
+    val startCodePoint = (matchCodePoint - SearchService.MAX_SEARCH_EXCERPT_CHARS / 2)
+        .coerceIn(0, codePointCount - SearchService.MAX_SEARCH_EXCERPT_CHARS)
+    val start = offsetByCodePoints(0, startCodePoint)
+    return substring(start, offsetByCodePoints(start, SearchService.MAX_SEARCH_EXCERPT_CHARS))
+}
 
 enum class SearchType {
     HYBRID,
@@ -216,15 +238,17 @@ data class DocumentContextChunk(
 )
 
 data class DocumentContextResponse(
+    val id: String,
     val sourceDocumentId: String,
     val chunks: List<DocumentContextChunk>,
 )
 
 data class SearchResult(
+    val id: String,
     val sourceDocumentId: String,
     val chunkId: Int,
     val title: String,
-    val content: String,
+    val excerpt: String,
     val link: String?,
     val metadata: JsonNode,
     val retrievalScore: Double?,

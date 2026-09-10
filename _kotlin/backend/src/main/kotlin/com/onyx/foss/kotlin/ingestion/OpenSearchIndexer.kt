@@ -164,6 +164,7 @@ class OpenSearchIndexer(
             "Hybrid normalization pipeline registry is not configured"
         }
         registry.ensureReady()
+        val candidateCount = Math.multiplyExact(limit, searchProperties.hybridCandidateMultiplier)
 
         val keywordQuery = Query.of { q ->
             q.multiMatch { mm -> mm.query(query).fields(listOf("title^2", "content")) }
@@ -172,14 +173,14 @@ class OpenSearchIndexer(
             q.knn { knn ->
                 knn.field(EMBEDDING_FIELD)
                     .vector(queryEmbedding.map { it.toFloat() })
-                    .k(searchProperties.hybridCandidates)
+                    .k(candidateCount)
             }
         }
         val filter = searchFilter(documentSets, sourceTypes, updatedAfter)
         val hybridQuery = Query.of { q ->
             q.hybrid { hybrid ->
                 hybrid.queries(listOf(keywordQuery, vectorQuery))
-                    .paginationDepth(searchProperties.hybridCandidates)
+                    .paginationDepth(candidateCount)
                 if (filter != null) {
                     hybrid.filter(filter)
                 }
@@ -191,6 +192,7 @@ class OpenSearchIndexer(
             .size(limit)
             .searchPipeline(registry.selectedPipelineId())
             .query(hybridQuery)
+            .collapse { collapse -> collapse.field(EXACT_DOCUMENT_ID_FIELD) }
             .build()
 
         return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
@@ -232,7 +234,18 @@ class OpenSearchIndexer(
             ?.let { Query.of { q -> q.bool { b -> b.filter(it) } } }
     }
 
-    fun chunksInRange(sourceDocumentId: String, minChunkId: Int, maxChunkId: Int): List<SearchCandidate> {
+    fun chunkById(id: String): SearchCandidate? {
+        require(id.isNotBlank()) { "id must not be blank" }
+        ensureIndex()
+        val response = client.get(
+            { get -> get.index(properties.indexName).id(id) },
+            OpenSearchChunkDocument::class.java,
+        )
+        val source = response.source() ?: return null
+        return source.toSearchCandidate(response.id(), 0.0, mapper)
+    }
+
+    fun chunksInRange(ccPairId: Long, sourceDocumentId: String, minChunkId: Int, maxChunkId: Int): List<SearchCandidate> {
         require(minChunkId <= maxChunkId) { "minChunkId must be <= maxChunkId" }
         ensureIndex()
 
@@ -240,8 +253,9 @@ class OpenSearchIndexer(
             q.bool { b ->
                 b.filter(
                     listOf(
-                        Query.of { q1 -> q1.term { t -> t.field("source_document_id").value(FieldValue.of(sourceDocumentId)) } },
-                        Query.of { q2 -> q2.range { r -> r.field("chunk_id").gte(JsonData.of(minChunkId)).lte(JsonData.of(maxChunkId)) } },
+                        Query.of { q1 -> q1.term { t -> t.field("cc_pair_id").value(FieldValue.of(ccPairId)) } },
+                        Query.of { q2 -> q2.term { t -> t.field("source_document_id").value(FieldValue.of(sourceDocumentId)) } },
+                        Query.of { q3 -> q3.range { r -> r.field("chunk_id").gte(JsonData.of(minChunkId)).lte(JsonData.of(maxChunkId)) } },
                     ),
                 )
             }

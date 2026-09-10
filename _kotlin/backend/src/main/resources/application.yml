@@ -54,7 +54,7 @@ onyx:
     embed-max-retries: ${ONYX_EMBED_MAX_RETRIES:2}
     embed-retry-initial-backoff-ms: ${ONYX_EMBED_RETRY_INITIAL_BACKOFF_MS:2000}
   search:
-    hybrid-candidates: ${ONYX_SEARCH_CANDIDATES:200}
+    hybrid-candidate-multiplier: ${ONYX_SEARCH_CANDIDATE_MULTIPLIER:5}
     hybrid-normalization: ${ONYX_HYBRID_NORMALIZATION:min_max}
     keyword-weight: ${ONYX_HYBRID_KEYWORD_WEIGHT:0.5}
     vector-weight: ${ONYX_HYBRID_VECTOR_WEIGHT:0.5}

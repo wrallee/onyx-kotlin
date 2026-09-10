@@ -122,7 +122,7 @@ class OpenSearchIndexerTest {
             server.start()
 
             val properties = testProperties(server)
-            val searchProperties = SearchProperties(hybridCandidates = 200)
+            val searchProperties = SearchProperties(hybridCandidateMultiplier = 8)
             OpenSearchClientFactory.createTransport(properties, mapper).use { transport ->
                 val client = OpenSearchClient(transport)
                 val registry = HybridNormalizationPipelineRegistry(
@@ -157,9 +157,11 @@ class OpenSearchIndexerTest {
                     .isEqualTo("documents-hybrid-min-max")
                 assertThat(body.path("size").asInt()).isEqualTo(7)
                 val hybrid = body.path("query").path("hybrid")
-                assertThat(hybrid.path("pagination_depth").asInt()).isEqualTo(200)
+                assertThat(hybrid.path("pagination_depth").asInt()).isEqualTo(56)
                 assertThat(hybrid.path("queries").get(1).path("knn").path("embedding").path("k").asInt())
-                    .isEqualTo(200)
+                    .isEqualTo(56)
+                assertThat(body.path("collapse").path("field").asString()).isEqualTo("source_document_id")
+                assertThat(body.has("sort")).isFalse()
                 assertThat(hybrid.path("filter").path("bool").path("filter").first()
                     .path("terms").path("document_sets").toList().map { it.asString() })
                     .containsExactly("Engineering")
@@ -176,28 +178,56 @@ class OpenSearchIndexerTest {
             server.enqueue(
                 jsonResponse(
                     """{"took":1,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"hits":[
-                        {"_id":"a","_score":1.0,"_source":{"source_document_id":"doc-1","chunk_id":1,"title":"T","content":"above","link":null,"metadata":{}}},
-                        {"_id":"b","_score":1.0,"_source":{"source_document_id":"doc-1","chunk_id":2,"title":"T","content":"center","link":null,"metadata":{}}},
-                        {"_id":"c","_score":1.0,"_source":{"source_document_id":"doc-1","chunk_id":3,"title":"T","content":"below","link":null,"metadata":{}}}
+                        {"_id":"a","_score":1.0,"_source":{"cc_pair_id":7,"source_document_id":"doc-1","chunk_id":1,"title":"T","content":"above","link":null,"metadata":{}}},
+                        {"_id":"b","_score":1.0,"_source":{"cc_pair_id":7,"source_document_id":"doc-1","chunk_id":2,"title":"T","content":"center","link":null,"metadata":{}}},
+                        {"_id":"c","_score":1.0,"_source":{"cc_pair_id":7,"source_document_id":"doc-1","chunk_id":3,"title":"T","content":"below","link":null,"metadata":{}}}
                     ]}}""",
                 ),
             )
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
-            val chunks = indexer.chunksInRange("doc-1", minChunkId = 1, maxChunkId = 3)
+            val chunks = indexer.chunksInRange(7, "doc-1", minChunkId = 1, maxChunkId = 3)
 
             server.takeRequest()
             server.takeRequest()
             val request = mapper.readTree(server.takeRequest().body.readUtf8())
             assertThat(request.path("size").asInt()).isEqualTo(3)
             val filters = request.path("query").path("bool").path("filter").toList()
+            assertThat(filters.map { it.path("term").path("cc_pair_id") }.filter { !it.isMissingNode }
+                .single().termValue()).isEqualTo(7)
             assertThat(filters.map { it.path("term").path("source_document_id") }.filter { !it.isMissingNode }
                 .single().termString()).isEqualTo("doc-1")
             val range = filters.map { it.path("range").path("chunk_id") }.filter { !it.isMissingNode }.single()
             assertThat(range.path("gte").asInt()).isEqualTo(1)
             assertThat(range.path("lte").asInt()).isEqualTo(3)
             assertThat(chunks.map { it.content }).containsExactly("above", "center", "below")
+        }
+    }
+
+    @Test
+    fun `chunkById returns the exact indexed copy`() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(
+                jsonResponse(
+                    """{"_index":"documents","_id":"chunk-7","_version":1,"_seq_no":0,"_primary_term":1,"found":true,"_source":{"cc_pair_id":7,"source_document_id":"doc-1","chunk_id":2,"title":"T","content":"center","metadata":{}}}""",
+                ),
+            )
+            server.start()
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
+
+            val chunk = indexer.chunkById("chunk-7")
+
+            server.takeRequest()
+            server.takeRequest()
+            val request = server.takeRequest()
+            assertThat(request.method).isEqualTo("GET")
+            assertThat(request.path).isEqualTo("/documents/_doc/chunk-7")
+            assertThat(chunk?.ccPairId).isEqualTo(7)
+            assertThat(chunk?.sourceDocumentId).isEqualTo("doc-1")
+            assertThat(chunk?.chunkId).isEqualTo(2)
         }
     }
 

@@ -7,8 +7,10 @@ import com.onyx.foss.kotlin.ingestion.ModelServerClient
 import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
 import com.onyx.foss.kotlin.service.DocumentContextResponse
 import com.onyx.foss.kotlin.service.SearchResponse
+import com.onyx.foss.kotlin.service.SearchResult
 import com.onyx.foss.kotlin.service.SearchService
 import com.onyx.foss.kotlin.service.SearchType
+import io.modelcontextprotocol.spec.McpSchema
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -66,21 +68,25 @@ class McpSearchToolTest {
     @Test
     fun `search tool uses default document sets when none provided in arguments`() {
         val response = SearchResponse(results = emptyList())
-        `when`(search.search("deployment guide", listOf("DefaultSet"), 10, SearchType.HYBRID)).thenReturn(response)
+        `when`(
+            search.search("deployment guide", listOf("DefaultSet"), SearchService.DEFAULT_RESULTS, SearchType.HYBRID),
+        ).thenReturn(response)
 
         val result = tool.callSearch(
             mapOf("query" to "deployment guide"),
             listOf("DefaultSet"),
         )
 
-        verify(search).search("deployment guide", listOf("DefaultSet"), 10, SearchType.HYBRID)
+        verify(search).search("deployment guide", listOf("DefaultSet"), SearchService.DEFAULT_RESULTS, SearchType.HYBRID)
         assertThat(result.isError() == true).isFalse()
     }
 
     @Test
     fun `search tool argument document sets override defaults`() {
         val response = SearchResponse(results = emptyList())
-        `when`(search.search("deployment guide", listOf("CustomSet"), 10, SearchType.HYBRID)).thenReturn(response)
+        `when`(
+            search.search("deployment guide", listOf("CustomSet"), SearchService.DEFAULT_RESULTS, SearchType.HYBRID),
+        ).thenReturn(response)
 
         val result = tool.callSearch(
             mapOf(
@@ -90,7 +96,7 @@ class McpSearchToolTest {
             listOf("DefaultSet"),
         )
 
-        verify(search).search("deployment guide", listOf("CustomSet"), 10, SearchType.HYBRID)
+        verify(search).search("deployment guide", listOf("CustomSet"), SearchService.DEFAULT_RESULTS, SearchType.HYBRID)
         assertThat(result.isError() == true).isFalse()
     }
 
@@ -102,7 +108,7 @@ class McpSearchToolTest {
             search.search(
                 "deployment guide",
                 emptyList(),
-                10,
+                SearchService.DEFAULT_RESULTS,
                 SearchType.HYBRID,
                 listOf("jira", "github"),
                 cutoff,
@@ -120,7 +126,7 @@ class McpSearchToolTest {
         verify(search).search(
             "deployment guide",
             emptyList(),
-            10,
+            SearchService.DEFAULT_RESULTS,
             SearchType.HYBRID,
             listOf("jira", "github"),
             cutoff,
@@ -132,7 +138,14 @@ class McpSearchToolTest {
     fun `search tool skips unknown source types instead of failing`() {
         val response = SearchResponse(results = emptyList())
         `when`(
-            search.search("deployment guide", emptyList(), 10, SearchType.HYBRID, listOf("jira"), null),
+            search.search(
+                "deployment guide",
+                emptyList(),
+                SearchService.DEFAULT_RESULTS,
+                SearchType.HYBRID,
+                listOf("jira"),
+                null,
+            ),
         ).thenReturn(response)
 
         val result = tool.callSearch(
@@ -142,7 +155,14 @@ class McpSearchToolTest {
             ),
         )
 
-        verify(search).search("deployment guide", emptyList(), 10, SearchType.HYBRID, listOf("jira"), null)
+        verify(search).search(
+            "deployment guide",
+            emptyList(),
+            SearchService.DEFAULT_RESULTS,
+            SearchType.HYBRID,
+            listOf("jira"),
+            null,
+        )
         assertThat(result.isError() == true).isFalse()
     }
 
@@ -150,7 +170,14 @@ class McpSearchToolTest {
     fun `search tool ignores an unparseable time cutoff instead of failing`() {
         val response = SearchResponse(results = emptyList())
         `when`(
-            search.search("deployment guide", emptyList(), 10, SearchType.HYBRID, emptyList(), null),
+            search.search(
+                "deployment guide",
+                emptyList(),
+                SearchService.DEFAULT_RESULTS,
+                SearchType.HYBRID,
+                emptyList(),
+                null,
+            ),
         ).thenReturn(response)
 
         val result = tool.callSearch(
@@ -160,46 +187,106 @@ class McpSearchToolTest {
             ),
         )
 
-        verify(search).search("deployment guide", emptyList(), 10, SearchType.HYBRID, emptyList(), null)
+        verify(search).search(
+            "deployment guide",
+            emptyList(),
+            SearchService.DEFAULT_RESULTS,
+            SearchType.HYBRID,
+            emptyList(),
+            null,
+        )
         assertThat(result.isError() == true).isFalse()
     }
 
     @Test
-    fun `context tool forwards document, chunk and window arguments`() {
-        val response = DocumentContextResponse("doc-1", emptyList())
-        `when`(search.getDocumentContext("doc-1", 5, 1, 3)).thenReturn(response)
+    fun `search schema uses the metadata-first result limit`() {
+        @Suppress("UNCHECKED_CAST")
+        val properties = McpSearchTool.SEARCH_INPUT_SCHEMA["properties"] as Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val limit = properties["limit"] as Map<String, Any>
+
+        assertThat(limit["default"]).isEqualTo(30)
+        assertThat(limit["maximum"]).isEqualTo(50)
+        assertThat(McpSearchTool.SEARCH_TOOL_DESCRIPTION).contains("two-step retrieval flow")
+    }
+
+    @Test
+    fun `search response preserves the excerpt contract in both MCP representations`() {
+        val mapper = jacksonObjectMapper()
+
+        listOf(3, 5, 10, 20).forEach { limit ->
+            val response = SearchResponse(
+                results = List(limit) { index ->
+                    SearchResult(
+                        id = "chunk-$index",
+                        sourceDocumentId = "doc-$index",
+                        chunkId = index,
+                        title = "Result $index",
+                        excerpt = "x".repeat(SearchService.MAX_SEARCH_EXCERPT_CHARS),
+                        link = null,
+                        metadata = mapper.createObjectNode(),
+                        retrievalScore = 1.0,
+                    )
+                },
+            )
+            `when`(search.search("query", emptyList(), limit, SearchType.HYBRID)).thenReturn(response)
+
+            val result = tool.callSearch(mapOf("query" to "query", "limit" to limit))
+            val text = (result.content().single() as McpSchema.TextContent).text()
+
+            assertThat(mapper.readTree(text)).isEqualTo(mapper.valueToTree(result.structuredContent()))
+            assertThat(text).doesNotContain("\"content\"")
+        }
+    }
+
+    @Test
+    fun `search rejects fractional and out-of-range limits`() {
+        val realSearch = SearchService(
+            SearchProperties(),
+            mock(ModelServerClient::class.java),
+            mock(OpenSearchIndexer::class.java),
+            mock(DocumentSetRepository::class.java),
+        )
+        val validationTool = McpSearchTool(realSearch, jacksonObjectMapper())
+
+        listOf(1.5, 0, 51).forEach { limit ->
+            assertThat(validationTool.callSearch(mapOf("query" to "query", "limit" to limit)).isError()).isTrue()
+        }
+    }
+
+    @Test
+    fun `context tool forwards result id and window arguments`() {
+        val response = DocumentContextResponse("chunk-5", "doc-1", emptyList())
+        `when`(search.getDocumentContext("chunk-5", 1, 3)).thenReturn(response)
 
         val result = tool.callGetDocumentContext(
             mapOf(
-                "source_document_id" to "doc-1",
-                "chunk_id" to 5,
+                "id" to "chunk-5",
                 "chunks_above" to 1,
                 "chunks_below" to 3,
             ),
         )
 
-        verify(search).getDocumentContext("doc-1", 5, 1, 3)
+        verify(search).getDocumentContext("chunk-5", 1, 3)
         assertThat(result.isError() == true).isFalse()
         assertThat(tool.contextDefinition().name()).isEqualTo("get_document_context")
     }
 
     @Test
     fun `context tool uses default window when not specified`() {
-        val response = DocumentContextResponse("doc-1", emptyList())
+        val response = DocumentContextResponse("chunk-5", "doc-1", emptyList())
         `when`(
             search.getDocumentContext(
-                "doc-1",
-                5,
+                "chunk-5",
                 SearchService.DEFAULT_CONTEXT_CHUNKS,
                 SearchService.DEFAULT_CONTEXT_CHUNKS,
             ),
         ).thenReturn(response)
 
-        val result = tool.callGetDocumentContext(mapOf("source_document_id" to "doc-1", "chunk_id" to 5))
+        val result = tool.callGetDocumentContext(mapOf("id" to "chunk-5"))
 
         verify(search).getDocumentContext(
-            "doc-1",
-            5,
+            "chunk-5",
             SearchService.DEFAULT_CONTEXT_CHUNKS,
             SearchService.DEFAULT_CONTEXT_CHUNKS,
         )

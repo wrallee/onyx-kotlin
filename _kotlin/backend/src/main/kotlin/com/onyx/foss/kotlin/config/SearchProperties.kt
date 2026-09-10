@@ -10,8 +10,8 @@ import kotlin.math.abs
 @ConfigurationProperties("onyx.search")
 data class SearchProperties(
     @field:Min(1)
-    @field:Max(10_000)
-    val hybridCandidates: Int = 200,
+    @field:Max(100)
+    val hybridCandidateMultiplier: Int = 5,
     val hybridNormalization: String = "min_max",
     val keywordWeight: Double = 0.5,
     val vectorWeight: Double = 0.5,

@@ -9,6 +9,7 @@ import com.onyx.foss.kotlin.service.SearchService
 import com.onyx.foss.kotlin.service.SearchType
 import io.modelcontextprotocol.spec.McpSchema
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
 import java.time.Instant
 
 @Component
@@ -40,7 +41,7 @@ class McpSearchTool(
             it as? String ?: throw IllegalArgumentException("document_sets must contain strings")
         }
         val documentSets = if (!requestedSets.isNullOrEmpty()) requestedSets else defaultDocumentSets
-        val limit = (arguments["limit"] as? Number)?.toInt() ?: 10
+        val limit = parseLimit(arguments["limit"])
         val searchTypeStr = arguments["search_type"] as? String
         val searchType = SearchType.fromString(searchTypeStr)
         val sourceTypes = parseSourceTypes(arguments["source_types"] as? List<*>)
@@ -59,14 +60,12 @@ class McpSearchTool(
     }
 
     fun callGetDocumentContext(arguments: Map<String, Any>): McpSchema.CallToolResult = try {
-        val sourceDocumentId = arguments["source_document_id"] as? String
-            ?: throw IllegalArgumentException("source_document_id must be a string")
-        val chunkId = (arguments["chunk_id"] as? Number)?.toInt()
-            ?: throw IllegalArgumentException("chunk_id must be an integer")
+        val id = arguments["id"] as? String
+            ?: throw IllegalArgumentException("id must be a string")
         val chunksAbove = (arguments["chunks_above"] as? Number)?.toInt() ?: SearchService.DEFAULT_CONTEXT_CHUNKS
         val chunksBelow = (arguments["chunks_below"] as? Number)?.toInt() ?: SearchService.DEFAULT_CONTEXT_CHUNKS
 
-        val response = search.getDocumentContext(sourceDocumentId, chunkId, chunksAbove, chunksBelow)
+        val response = search.getDocumentContext(id, chunksAbove, chunksBelow)
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
             .structuredContent(response)
@@ -83,6 +82,13 @@ class McpSearchTool(
             val value = entry as? String ?: return@mapNotNull null
             runCatching { ConnectorSource.fromValue(value) }.getOrNull()?.value
         }
+
+    private fun parseLimit(raw: Any?): Int = when (raw) {
+        null -> SearchService.DEFAULT_RESULTS
+        is Number -> runCatching { BigDecimal(raw.toString()).intValueExact() }
+            .getOrElse { throw IllegalArgumentException("limit must be an integer") }
+        else -> throw IllegalArgumentException("limit must be an integer")
+    }
 
     private fun parseTimeCutoff(raw: String?): Instant? {
         if (raw.isNullOrBlank()) return null
@@ -134,6 +140,7 @@ class McpSearchTool(
     }
 
     private fun extractItemId(item: Map<String, Any?>): String? {
+        (item["id"] as? String)?.takeIf(String::isNotBlank)?.let { return it }
         val documentId = extractDocumentId(item)?.takeIf(String::isNotBlank) ?: return null
         val chunkId = extractChunkId(item)?.takeIf { it >= 0 } ?: return null
         return "${documentId}_$chunkId"
@@ -161,9 +168,9 @@ information that a general-purpose model would not know — ticket status, inter
 runbooks, code in indexed repos, past decisions. Prefer calling it proactively over asking
 the user for information it can supply.
 
-Each result is a single indexed chunk, not the whole document — content may be truncated
-mid-thought. If a result looks cut off or you need surrounding context, call
-`get_document_context` with that result's `source_document_id` and `chunk_id`.
+This is the discovery step of a two-step retrieval flow. Each result contains metadata and
+a short excerpt, not the full indexed chunk. Select relevant results, then call
+`get_document_context` with each result's `id` before answering.
 
 Search strategy (you are the agent — this tool is a retrieval primitive, not a full
 pipeline):
@@ -188,11 +195,11 @@ ignored (search proceeds without the filter) rather than failing the call."""
         const val CONTEXT_TOOL_DESCRIPTION = """Fetch the chunks immediately before/after a specific chunk in a document
 returned by `search_indexed_documents`.
 
-Use this when a search result's `content` is truncated, cuts off mid-sentence, or you
+Use this when a search result's `excerpt` is truncated, cuts off mid-sentence, or you
 need more surrounding text to judge relevance or answer accurately — this is how you
 recover the context an internal chat agent would otherwise pre-expand for you.
 
-`source_document_id` and `chunk_id` come from a prior search result. `chunks_above` and
+`id` comes from a prior search result and identifies its exact indexed chunk. `chunks_above` and
 `chunks_below` (default 2 each, max 10 each) control how many neighboring chunks to
 retrieve on each side. Returns chunks ordered by `chunk_id`; concatenate their `content`
 for continuous reading."""
@@ -229,7 +236,12 @@ coverage for each subquestion instead."""
                     "enum" to listOf("hybrid", "keyword", "semantic"),
                     "default" to "hybrid",
                 ),
-                "limit" to mapOf("type" to "integer", "minimum" to 1, "maximum" to 20, "default" to 10),
+                "limit" to mapOf(
+                    "type" to "integer",
+                    "minimum" to 1,
+                    "maximum" to SearchService.MAX_RESULTS,
+                    "default" to SearchService.DEFAULT_RESULTS,
+                ),
             ),
             "required" to listOf("query"),
             "additionalProperties" to false,
@@ -264,12 +276,11 @@ coverage for each subquestion instead."""
         val CONTEXT_INPUT_SCHEMA: Map<String, Any> = mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "source_document_id" to mapOf("type" to "string", "minLength" to 1),
-                "chunk_id" to mapOf("type" to "integer", "minimum" to 0),
+                "id" to mapOf("type" to "string", "minLength" to 1, "maxLength" to SearchService.MAX_RESULT_ID_CHARS),
                 "chunks_above" to mapOf("type" to "integer", "minimum" to 0, "maximum" to 10, "default" to 2),
                 "chunks_below" to mapOf("type" to "integer", "minimum" to 0, "maximum" to 10, "default" to 2),
             ),
-            "required" to listOf("source_document_id", "chunk_id"),
+            "required" to listOf("id"),
             "additionalProperties" to false,
         )
     }

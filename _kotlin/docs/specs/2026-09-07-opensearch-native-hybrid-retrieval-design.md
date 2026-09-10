@@ -12,9 +12,10 @@ Move BM25/vector score fusion from Kotlin to OpenSearch native hybrid search. Ke
 
 Hybrid search uses:
 
-- `pagination_depth = 200` by default.
-- vector `k = 200` by default.
-- request `size = MCP limit`.
+- `pagination_depth = MCP limit * 5` by default.
+- vector `k = MCP limit * 5` by default.
+- request `size = MCP limit`, which defaults to 30.
+- request collapse by `source_document_id`, preserving score order.
 - common document-set, source-type, and time filters through `hybrid.filter`.
 - explicit request-level search pipeline selection.
 
@@ -35,7 +36,7 @@ Pipeline failures must fail hybrid retrieval. Keyword and semantic retrieval do 
 
 Use `onyx.search.*`:
 
-- `hybrid-candidates`: default `200`, range `1..10000`.
+- `hybrid-candidate-multiplier`: default `5`, range `1..100`.
 - `hybrid-normalization`: `min_max` or `z_score`, default `min_max`.
 - `keyword-weight`: default `0.5`.
 - `vector-weight`: default `0.5`.
@@ -43,7 +44,7 @@ Use `onyx.search.*`:
 
 Weights must be non-negative and sum to `1.0`.
 
-Remove retrieval policy from `onyx.model-server.search-candidates`. Preserve `ONYX_SEARCH_CANDIDATES` as the environment variable.
+Use `ONYX_SEARCH_CANDIDATE_MULTIPLIER` as the environment variable.
 
 ## MCP WRRF
 
@@ -63,6 +64,12 @@ Use WRRF for same-intent rewrites, synonyms, or alternate retrieval strategies. 
 After MCP-level WRRF, group results by document and collapse each maximal consecutive chunk run to its highest-ranked member. Keep non-adjacent chunks independently. Keep results without usable document/chunk identity independently.
 
 Do not concatenate content. Use `get_document_context` for surrounding chunks.
+
+## MCP result contract
+
+Search returns an opaque indexed-chunk ID, metadata, score, and a bounded excerpt.
+It does not return full chunk content. Pass the ID to `get_document_context` so
+the detailed read stays within the selected connector-credential copy.
 
 ## Non-goals
 

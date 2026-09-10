@@ -20,7 +20,7 @@ class SearchServiceTest {
     private val modelServer = mock(ModelServerClient::class.java)
     private val indexer = mock(OpenSearchIndexer::class.java)
     private val documentSets = mock(DocumentSetRepository::class.java)
-    private val searchProperties = SearchProperties(hybridCandidates = 200, rrfK = 50)
+    private val searchProperties = SearchProperties(hybridCandidateMultiplier = 5, rrfK = 50)
     private val service = SearchService(searchProperties, modelServer, indexer, documentSets)
 
     @Test
@@ -76,6 +76,42 @@ class SearchServiceTest {
         verify(modelServer).embedQuery("deployment guide")
         verify(indexer).hybridSearch("deployment guide", listOf(0.1, 0.2, 0.3), emptyList(), 5, emptyList(), null)
         assertThat(response.results.map { it.sourceDocumentId }).containsExactly("doc-hybrid")
+    }
+
+    @Test
+    fun `search returns a bounded excerpt around a late keyword match`() {
+        val content = "x".repeat(400) + "query match" + "y".repeat(400)
+        `when`(indexer.keywordSearch("query", emptyList(), 1, emptyList(), null))
+            .thenReturn(listOf(candidate("long").copy(content = content)))
+
+        val result = service.search("query", emptyList(), 1, SearchType.KEYWORD).results.single()
+
+        assertThat(result.excerpt).hasSize(SearchService.MAX_SEARCH_EXCERPT_CHARS)
+        assertThat(result.excerpt).contains("query match")
+    }
+
+    @Test
+    fun `search excerpt preserves supplementary Unicode characters`() {
+        val content = "x".repeat(299) + "😀" + "y".repeat(300)
+        `when`(indexer.keywordSearch("missing", emptyList(), 1, emptyList(), null))
+            .thenReturn(listOf(candidate("unicode").copy(content = content)))
+
+        val excerpt = service.search("missing", emptyList(), 1, SearchType.KEYWORD).results.single().excerpt
+
+        assertThat(excerpt.codePointCount(0, excerpt.length)).isEqualTo(SearchService.MAX_SEARCH_EXCERPT_CHARS)
+        assertThat(excerpt.last().isHighSurrogate()).isFalse()
+    }
+
+    @Test
+    fun `search accepts fifty results and rejects larger requests`() {
+        `when`(indexer.keywordSearch("query", emptyList(), SearchService.MAX_RESULTS, emptyList(), null))
+            .thenReturn(emptyList())
+
+        service.search("query", emptyList(), SearchService.MAX_RESULTS, SearchType.KEYWORD)
+
+        assertThrows<IllegalArgumentException> {
+            service.search("query", emptyList(), SearchService.MAX_RESULTS + 1, SearchType.KEYWORD)
+        }
     }
 
     @Test
@@ -140,7 +176,10 @@ class SearchServiceTest {
 
     @Test
     fun `getDocumentContext fetches chunks around the center clamped at zero`() {
-        `when`(indexer.chunksInRange("doc-1", 0, 3)).thenReturn(
+        `when`(indexer.chunkById("chunk-1")).thenReturn(
+            candidate("chunk-1").copy(ccPairId = 7, sourceDocumentId = "doc-1", chunkId = 1),
+        )
+        `when`(indexer.chunksInRange(7, "doc-1", 0, 3)).thenReturn(
             listOf(
                 candidate("above").copy(sourceDocumentId = "doc-1", chunkId = 0, content = "c0"),
                 candidate("center").copy(sourceDocumentId = "doc-1", chunkId = 1, content = "c1"),
@@ -148,17 +187,22 @@ class SearchServiceTest {
             ),
         )
 
-        val response = service.getDocumentContext("doc-1", chunkId = 1, chunksAbove = 2, chunksBelow = 2)
+        val response = service.getDocumentContext("chunk-1", chunksAbove = 2, chunksBelow = 2)
 
+        assertThat(response.id).isEqualTo("chunk-1")
         assertThat(response.chunks.map { it.chunkId to it.content })
             .containsExactly(0 to "c0", 1 to "c1", 3 to "c3")
     }
 
     @Test
     fun `getDocumentContext clamps chunk window to the configured maximum`() {
-        service.getDocumentContext("doc-1", chunkId = 20, chunksAbove = 100, chunksBelow = 100)
+        `when`(indexer.chunkById("chunk-20")).thenReturn(
+            candidate("chunk-20").copy(ccPairId = 9, sourceDocumentId = "doc-1", chunkId = 20),
+        )
 
-        verify(indexer).chunksInRange("doc-1", 10, 30)
+        service.getDocumentContext("chunk-20", chunksAbove = 100, chunksBelow = 100)
+
+        verify(indexer).chunksInRange(9, "doc-1", 10, 30)
     }
 
     private fun candidate(id: String, score: Double = 1.0) = SearchCandidate(
