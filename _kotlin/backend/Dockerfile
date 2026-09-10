@@ -1,10 +1,11 @@
-FROM gradle:8.14.3-jdk21 AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
-COPY settings.gradle.kts build.gradle.kts ./
+COPY gradlew settings.gradle.kts build.gradle.kts ./
+COPY gradle ./gradle
 COPY src ./src
-RUN gradle --no-daemon bootJar
+RUN ./gradlew --no-daemon bootJar
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 RUN useradd --system --create-home --home-dir /app onyx
 WORKDIR /app
 COPY --from=build /workspace/build/libs/*.jar /app/app.jar
