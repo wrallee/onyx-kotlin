@@ -20,7 +20,7 @@ class SearchServiceTest {
     private val modelServer = mock(ModelServerClient::class.java)
     private val indexer = mock(OpenSearchIndexer::class.java)
     private val documentSets = mock(DocumentSetRepository::class.java)
-    private val searchProperties = SearchProperties(hybridCandidates = 200, rrfK = 50)
+    private val searchProperties = SearchProperties(hybridCandidateMultiplier = 5, rrfK = 50)
     private val service = SearchService(searchProperties, modelServer, indexer, documentSets)
 
     @Test
@@ -76,6 +76,29 @@ class SearchServiceTest {
         verify(modelServer).embedQuery("deployment guide")
         verify(indexer).hybridSearch("deployment guide", listOf(0.1, 0.2, 0.3), emptyList(), 5, emptyList(), null)
         assertThat(response.results.map { it.sourceDocumentId }).containsExactly("doc-hybrid")
+    }
+
+    @Test
+    fun `search returns a bounded excerpt instead of full chunk content`() {
+        val content = "x".repeat(SearchService.MAX_SEARCH_EXCERPT_CHARS + 1)
+        `when`(indexer.keywordSearch("query", emptyList(), 1, emptyList(), null))
+            .thenReturn(listOf(candidate("long").copy(content = content)))
+
+        val result = service.search("query", emptyList(), 1, SearchType.KEYWORD).results.single()
+
+        assertThat(result.excerpt).isEqualTo("x".repeat(SearchService.MAX_SEARCH_EXCERPT_CHARS))
+    }
+
+    @Test
+    fun `search accepts fifty results and rejects larger requests`() {
+        `when`(indexer.keywordSearch("query", emptyList(), SearchService.MAX_RESULTS, emptyList(), null))
+            .thenReturn(emptyList())
+
+        service.search("query", emptyList(), SearchService.MAX_RESULTS, SearchType.KEYWORD)
+
+        assertThrows<IllegalArgumentException> {
+            service.search("query", emptyList(), SearchService.MAX_RESULTS + 1, SearchType.KEYWORD)
+        }
     }
 
     @Test

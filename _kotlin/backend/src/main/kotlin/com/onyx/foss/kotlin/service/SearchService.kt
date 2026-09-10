@@ -20,7 +20,7 @@ class SearchService(
     fun search(
         query: String,
         documentSets: List<String> = emptyList(),
-        limit: Int = 10,
+        limit: Int = DEFAULT_RESULTS,
         searchType: SearchType = SearchType.HYBRID,
         sourceTypes: List<String> = emptyList(),
         timeCutoff: Instant? = null,
@@ -176,7 +176,9 @@ class SearchService(
     }
 
     companion object {
-        const val MAX_RESULTS = 20
+        const val DEFAULT_RESULTS = 30
+        const val MAX_RESULTS = 50
+        const val MAX_SEARCH_EXCERPT_CHARS = 300
         const val DEFAULT_CONTEXT_CHUNKS = 2
         const val MAX_CONTEXT_CHUNKS = 10
     }
@@ -186,7 +188,7 @@ private fun SearchCandidate.toSearchResult(): SearchResult = SearchResult(
     sourceDocumentId = sourceDocumentId,
     chunkId = chunkId,
     title = title,
-    content = content,
+    excerpt = content.take(SearchService.MAX_SEARCH_EXCERPT_CHARS),
     link = link,
     metadata = metadata,
     retrievalScore = retrievalScore,
@@ -224,7 +226,7 @@ data class SearchResult(
     val sourceDocumentId: String,
     val chunkId: Int,
     val title: String,
-    val content: String,
+    val excerpt: String,
     val link: String?,
     val metadata: JsonNode,
     val retrievalScore: Double?,

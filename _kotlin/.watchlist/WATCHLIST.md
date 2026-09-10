@@ -135,6 +135,34 @@ This file records deferred checks. It does not schedule work.
 - result:
 - next_step_on_fail: 커넥터 설정 단계의 jira_base_url 기반 판별 로직을 유지하면서 점진적 UI 개편을 진행한다.
 
+### WL-20260910-001 — 동일 문서 chunk의 검색 결과 독식 방지
+- status: open
+- priority: P0
+- owner: assistant_on_review
+- due_at: unscheduled
+- created_at: 2026-09-10T13:51:07+09:00
+- source: Onyx MCP 평가 PDF, 2026-09-08
+- trigger: 긴 문서의 유사 chunk가 상위 결과를 독식해 다른 문서의 근거를 밀어낸다. 설계 범위가 커서 이번 수정에서 보류한다.
+- action: 문서별 chunk 반환 상한과 space·repository 범위 필터를 비교하고 최소 변경으로 결과 다양성을 보장한다.
+- done_when: 재현 질의에서 같은 문서의 chunk 수가 합의한 상한을 넘지 않고 정답 문서가 상위 결과에 남는다.
+- last_checked_at:
+- result:
+- next_step_on_fail: OpenSearch 후보 조회와 MCP 후처리 중 더 작은 공통 수정 지점을 다시 확인한다.
+
 ## Done
+
+### WL-20260910-002 — limit 증가에 따른 MCP 응답 토큰 과대 방지
+- status: done
+- priority: P0
+- owner: assistant_on_review
+- due_at: unscheduled
+- created_at: 2026-09-10T13:51:07+09:00
+- source: Onyx MCP 평가 PDF, 2026-09-08
+- trigger: limit 증가 시 긴 chunk 전문이 함께 반환돼 응답 토큰이 비선형으로 증가한다. 반환 계약 검토가 필요해 이번 수정에서 보류한다.
+- action: 기본 limit, 반환 필드, chunk 축약 방식을 검토하고 품질을 유지하는 최소 응답 계약을 정한다.
+- done_when: limit 3·5·10·20 회귀 측정에서 응답 크기 상한을 지키고 필요한 근거와 text·structuredContent 계약을 보존한다.
+- last_checked_at: 2026-09-10T15:16:09+09:00
+- result: 검색 응답을 300자 excerpt와 metadata로 제한하고 상세 조회를 get_document_context로 분리했다. limit 3·5·10·20에서 크기 상한과 text·structuredContent 동등성을 검증했다. 기본 limit은 30, 최대는 50이다.
+- next_step_on_fail: 기본 limit 하향과 선택적 상세 조회를 분리해 단계적으로 적용한다.
 
 ## Archive

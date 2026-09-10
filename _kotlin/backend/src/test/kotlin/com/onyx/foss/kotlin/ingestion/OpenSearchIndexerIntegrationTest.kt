@@ -147,22 +147,23 @@ class OpenSearchIndexerIntegrationTest {
     }
 
     @Test
-    fun nativeHybridSearchCreatesBothPipelinesAndReturnsOnlyRequestedLimit() {
+    fun nativeHybridSearchCreatesPipelinesAndCollapsesChunksByDocument() {
         val writer = indexer()
         writer.upsert(7, "engineering-a", 0, "Deployment Guide", "deployment needle alpha", null, emptyMap(), vector(0.1), listOf("Engineering"))
+        writer.upsert(7, "engineering-a", 1, "Deployment Guide", "deployment needle alpha two", null, emptyMap(), vector(0.1), listOf("Engineering"))
         writer.upsert(7, "engineering-b", 0, "Deployment Guide", "deployment needle beta", null, emptyMap(), vector(0.2), listOf("Engineering"))
         writer.upsert(7, "finance", 0, "Deployment Guide", "deployment needle finance", null, emptyMap(), vector(0.3), listOf("Finance"))
 
-        val indexer = hybridIndexer(SearchProperties(hybridCandidates = 200))
+        val indexer = hybridIndexer(SearchProperties(hybridCandidateMultiplier = 5))
         val results = indexer.hybridSearch(
             query = "deployment needle",
             queryEmbedding = vector(0.1),
             documentSets = listOf("Engineering"),
-            limit = 1,
+            limit = 3,
         )
 
-        assertThat(results).hasSize(1)
-        assertThat(results.single().sourceDocumentId).isIn("engineering-a", "engineering-b")
+        assertThat(results.map(SearchCandidate::sourceDocumentId))
+            .containsExactlyInAnyOrder("engineering-a", "engineering-b")
 
         val minMaxId = "$index-hybrid-min-max"
         val zScoreId = "$index-hybrid-z-score"
@@ -176,7 +177,7 @@ class OpenSearchIndexerIntegrationTest {
             .isEqualTo(listOf(0.5, 0.5))
 
         val zScoreResults = hybridIndexer(
-            SearchProperties(hybridCandidates = 200, hybridNormalization = "z_score"),
+            SearchProperties(hybridCandidateMultiplier = 5, hybridNormalization = "z_score"),
         ).hybridSearch(
             query = "deployment needle",
             queryEmbedding = vector(0.1),

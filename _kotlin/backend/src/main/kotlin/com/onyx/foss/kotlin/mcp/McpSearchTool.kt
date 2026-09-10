@@ -40,7 +40,7 @@ class McpSearchTool(
             it as? String ?: throw IllegalArgumentException("document_sets must contain strings")
         }
         val documentSets = if (!requestedSets.isNullOrEmpty()) requestedSets else defaultDocumentSets
-        val limit = (arguments["limit"] as? Number)?.toInt() ?: 10
+        val limit = (arguments["limit"] as? Number)?.toInt() ?: SearchService.DEFAULT_RESULTS
         val searchTypeStr = arguments["search_type"] as? String
         val searchType = SearchType.fromString(searchTypeStr)
         val sourceTypes = parseSourceTypes(arguments["source_types"] as? List<*>)
@@ -161,9 +161,9 @@ information that a general-purpose model would not know — ticket status, inter
 runbooks, code in indexed repos, past decisions. Prefer calling it proactively over asking
 the user for information it can supply.
 
-Each result is a single indexed chunk, not the whole document — content may be truncated
-mid-thought. If a result looks cut off or you need surrounding context, call
-`get_document_context` with that result's `source_document_id` and `chunk_id`.
+This is the discovery step of a two-step retrieval flow. Each result contains metadata and
+a short excerpt, not the full indexed chunk. Select relevant results, then call
+`get_document_context` with each result's `source_document_id` and `chunk_id` before answering.
 
 Search strategy (you are the agent — this tool is a retrieval primitive, not a full
 pipeline):
@@ -229,7 +229,12 @@ coverage for each subquestion instead."""
                     "enum" to listOf("hybrid", "keyword", "semantic"),
                     "default" to "hybrid",
                 ),
-                "limit" to mapOf("type" to "integer", "minimum" to 1, "maximum" to 20, "default" to 10),
+                "limit" to mapOf(
+                    "type" to "integer",
+                    "minimum" to 1,
+                    "maximum" to SearchService.MAX_RESULTS,
+                    "default" to SearchService.DEFAULT_RESULTS,
+                ),
             ),
             "required" to listOf("query"),
             "additionalProperties" to false,

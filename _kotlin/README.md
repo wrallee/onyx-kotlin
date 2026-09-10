@@ -96,9 +96,11 @@ directly.
 ```
 
 The `search` tool accepts an optional `document_sets` array. It searches the
-union of those sets. Hybrid search retrieves 200 keyword and vector candidates
-by default, then OpenSearch normalizes and combines their scores. Set
-`ONYX_SEARCH_CANDIDATES` to change the candidate depth.
+union of those sets and returns metadata with a short excerpt. Use
+`get_document_context` to read selected results. The default limit is 30.
+Hybrid search retrieves five times the requested limit before OpenSearch
+normalizes and collapses results by document. Set
+`ONYX_SEARCH_CANDIDATE_MULTIPLIER` to change that multiplier.
 
 Delete the existing OpenSearch index before this version is deployed. The
 application does not delete it. It rejects an incompatible embedding mapping

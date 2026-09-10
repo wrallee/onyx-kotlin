@@ -164,6 +164,7 @@ class OpenSearchIndexer(
             "Hybrid normalization pipeline registry is not configured"
         }
         registry.ensureReady()
+        val candidateCount = Math.multiplyExact(limit, searchProperties.hybridCandidateMultiplier)
 
         val keywordQuery = Query.of { q ->
             q.multiMatch { mm -> mm.query(query).fields(listOf("title^2", "content")) }
@@ -172,14 +173,14 @@ class OpenSearchIndexer(
             q.knn { knn ->
                 knn.field(EMBEDDING_FIELD)
                     .vector(queryEmbedding.map { it.toFloat() })
-                    .k(searchProperties.hybridCandidates)
+                    .k(candidateCount)
             }
         }
         val filter = searchFilter(documentSets, sourceTypes, updatedAfter)
         val hybridQuery = Query.of { q ->
             q.hybrid { hybrid ->
                 hybrid.queries(listOf(keywordQuery, vectorQuery))
-                    .paginationDepth(searchProperties.hybridCandidates)
+                    .paginationDepth(candidateCount)
                 if (filter != null) {
                     hybrid.filter(filter)
                 }
@@ -191,6 +192,7 @@ class OpenSearchIndexer(
             .size(limit)
             .searchPipeline(registry.selectedPipelineId())
             .query(hybridQuery)
+            .collapse { collapse -> collapse.field(EXACT_DOCUMENT_ID_FIELD) }
             .build()
 
         return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
