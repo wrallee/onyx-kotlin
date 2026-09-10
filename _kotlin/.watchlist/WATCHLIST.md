@@ -65,48 +65,6 @@ This file records deferred checks. It does not schedule work.
 - result: OpenShift에서 삭제 요청이 OpenSearch 401 Unauthorized로 실패했다. Backend은 인증 환경변수를 받지만 WebClient에 Authorization 헤더를 설정하지 않았다. pair는 DELETING, job은 RUNNING, attempt는 IN_PROGRESS로 남았다. 목록 UI는 완료 attempt가 없으면 pair 상태를 무시하고 INITIAL_INDEXING으로 표시했다. 1883fa04b에서 배포의 OPENSEARCH_ADMIN_USERNAME·OPENSEARCH_ADMIN_PASSWORD를 Basic Auth로 연결했다.
 - next_step_on_fail: 인증 수정과 삭제 상태 전이를 분리해 테스트한다. 그런 다음 장애 후 재시도 또는 롤백 규칙을 결정한다.
 
-### WL-20260901-005 — Confluence space probe의 lazy 계약 복구
-- status: open
-- priority: P1
-- owner: both
-- due_at: unscheduled
-- created_at: 2026-09-01T21:42:27+09:00
-- source: backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/ConfluenceConnectorLoader.kt
-- trigger: Kotlin의 eager space 목록 조회를 피하려고 credential 검증에서 첫 페이지만 직접 읽는 임시 수정을 적용했다.
-- action: Confluence space 조회를 Python generator와 같은 lazy 계약으로 정리하고 probe와 전체 pagination의 책임을 분리한다.
-- done_when: probe는 첫 space에서 중단되고 전체 space 조회는 모든 페이지를 처리하며 Cloud v2 fallback까지 테스트로 검증된다.
-- last_checked_at:
-- result:
-- next_step_on_fail: probe 전용 API와 전체 space pagination API를 분리하는 설계를 다시 검토한다.
-
-### WL-20260901-006 — OpenSearch 공식 Java client 전환
-- status: open
-- priority: P1
-- owner: both
-- due_at: unscheduled
-- created_at: 2026-09-01T21:54:32+09:00
-- source: backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionWorker.kt
-- trigger: Kotlin backend이 WebClient로 OpenSearch REST API와 JSON, 인증, TLS, 오류 처리를 직접 관리한다.
-- action: OpenSearchIndexer를 opensearch-java와 ApacheHttpClient5Transport 기반으로 전환한다.
-- done_when: 인덱스 생성, mapping, upsert, update-by-query, delete-by-query, reindex, alias 교체가 공식 client로 작동하고 인증·TLS·timeout 설정이 통합 테스트로 검증된다.
-- last_checked_at:
-- result:
-- next_step_on_fail: 공식 client에 typed API가 없는 작업만 generic transport로 분리한다.
-
-### WL-20260902-001 — Spring 업그레이드와 Spring AI 도입 검토
-- status: open
-- priority: P2
-- owner: both
-- due_at: unscheduled
-- created_at: 2026-09-02T10:36:44+09:00
-- source: backend/build.gradle.kts; Kotlin 검색·MCP 구현 대화
-- trigger: 벡터 데이터베이스 검색을 직접 구현하기 전에 Spring AI의 Vector Store 지원을 활용할 수 있는지 확인해야 한다.
-- action: Spring Boot를 호환 버전으로 올리고 Spring AI를 추가하는 방안을 우선 검토한다.
-- done_when: 호환 버전과 마이그레이션 범위가 정해지고 Spring AI 기반 벡터 검색 도입 여부가 검증 결과와 함께 결정된다.
-- last_checked_at:
-- result:
-- next_step_on_fail: 현재 OpenSearch REST 구현을 유지하고 필요한 검색 기능만 최소 구현한다.
-
 ### WL-20260903-001 — OpenSearch 검색 응답 버퍼 한도 임시 상향
 - status: open
 - priority: P2
@@ -134,20 +92,6 @@ This file records deferred checks. It does not schedule work.
 - last_checked_at:
 - result:
 - next_step_on_fail: 커넥터 설정 단계의 jira_base_url 기반 판별 로직을 유지하면서 점진적 UI 개편을 진행한다.
-
-### WL-20260910-001 — 동일 문서 chunk의 검색 결과 독식 방지
-- status: open
-- priority: P0
-- owner: assistant_on_review
-- due_at: unscheduled
-- created_at: 2026-09-10T13:51:07+09:00
-- source: Onyx MCP 평가 PDF, 2026-09-08
-- trigger: 긴 문서의 유사 chunk가 상위 결과를 독식해 다른 문서의 근거를 밀어낸다. 설계 범위가 커서 이번 수정에서 보류한다.
-- action: 문서별 chunk 반환 상한과 space·repository 범위 필터를 비교하고 최소 변경으로 결과 다양성을 보장한다.
-- done_when: 재현 질의에서 같은 문서의 chunk 수가 합의한 상한을 넘지 않고 정답 문서가 상위 결과에 남는다.
-- last_checked_at:
-- result:
-- next_step_on_fail: OpenSearch 후보 조회와 MCP 후처리 중 더 작은 공통 수정 지점을 다시 확인한다.
 
 ### WL-20260910-003 — GitHub PR 리뷰 댓글 문서 정규화
 - status: open
@@ -191,7 +135,77 @@ This file records deferred checks. It does not schedule work.
 - result:
 - next_step_on_fail: GraphQL 또는 변경 파일 API의 호환성이 부족하면 REST 저장소 단위 댓글 조회와 현재 전체 파일 수집을 분리해 단계적으로 개선한다.
 
+### WL-20260911-003 — Connector 상세 화면 Resolve All 동작 확인
+- status: open
+- priority: P1
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-11T01:53:32+09:00
+- source: Connector 상세 화면 Resolve All 동작 확인 대화
+- trigger: Connector 상세 화면의 Resolve All 실행 후 상태가 정상 반영되지 않는다. DB가 업데이트되지 않는 것으로 추정되지만 아직 확인하지 않았다.
+- action: Resolve All 요청의 frontend 호출, backend 처리, DB 갱신과 화면 재조회 흐름을 재현하고 실패 지점을 확인한다.
+- done_when: Resolve All 실행 후 대상 상태가 DB에 저장되고 Connector 상세 화면에 반영되는 통합 시나리오가 검증된다.
+- last_checked_at:
+- result:
+- next_step_on_fail: 요청 응답과 backend 로그를 DB 상태 전후와 대조해 API 처리 실패와 화면 갱신 실패를 분리한다.
+
 ## Done
+
+### WL-20260901-005 — Confluence space probe의 lazy 계약 복구
+- status: done
+- priority: P1
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-01T21:42:27+09:00
+- source: backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/ConfluenceConnectorLoader.kt
+- trigger: Kotlin의 eager space 목록 조회를 피하려고 credential 검증에서 첫 페이지만 직접 읽는 임시 수정을 적용했다.
+- action: Confluence space 조회를 Python generator와 같은 lazy 계약으로 정리하고 probe와 전체 pagination의 책임을 분리한다.
+- done_when: probe는 첫 space에서 중단되고 전체 space 조회는 모든 페이지를 처리하며 Cloud v2 fallback까지 테스트로 검증된다.
+- last_checked_at: 2026-09-11T01:55:02+09:00
+- result: ae515b531에서 credential probe가 첫 space 뒤 중단되도록 수정했고, 전체 pagination과 Cloud v2 fallback 테스트를 분리해 검증했다.
+- next_step_on_fail: probe 전용 API와 전체 space pagination API를 분리하는 설계를 다시 검토한다.
+
+### WL-20260901-006 — OpenSearch 공식 Java client 전환
+- status: done
+- priority: P1
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-01T21:54:32+09:00
+- source: backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/OpenSearchIndexer.kt; backend/src/main/kotlin/com/onyx/foss/kotlin/opensearch/OpenSearchClientFactory.kt
+- trigger: Kotlin backend이 WebClient로 OpenSearch REST API와 JSON, 인증, TLS, 오류 처리를 직접 관리한다.
+- action: OpenSearchIndexer를 opensearch-java와 ApacheHttpClient5Transport 기반으로 전환한다.
+- done_when: 현재 OpenSearch index 생성, mapping, 검색과 쓰기 작업이 공식 client로 동작하고 인증·TLS·timeout 설정이 통합 테스트로 검증된다.
+- last_checked_at: 2026-09-11T01:55:02+09:00
+- result: e41aa6847부터 OpenSearch Java Client와 ApacheHttpClient5Transport를 사용한다. 이후 자동 reindex와 alias 교체는 요구사항 변경으로 제거했고, 현재 strict mapping과 검색·쓰기 계약을 통합 테스트로 검증한다.
+- next_step_on_fail: 공식 client에 typed API가 없는 작업만 generic transport로 분리한다.
+
+### WL-20260902-001 — Spring 업그레이드와 Spring AI 도입 검토
+- status: done
+- priority: P2
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-02T10:36:44+09:00
+- source: backend/build.gradle.kts; Kotlin 검색·MCP 구현 대화
+- trigger: 벡터 데이터베이스 검색을 직접 구현하기 전에 Spring AI의 Vector Store 지원을 활용할 수 있는지 확인해야 한다.
+- action: Spring Boot를 호환 버전으로 올리고 Spring AI를 추가하는 방안을 우선 검토한다.
+- done_when: 호환 버전과 마이그레이션 범위가 정해지고 Spring AI 기반 벡터 검색 도입 여부가 검증 결과와 함께 결정된다.
+- last_checked_at: 2026-09-11T01:55:02+09:00
+- result: Spring Boot 4.0.7과 Spring AI 1.0.0을 도입했다. OpenSearch Java Client 기반 vector store와 native hybrid 검색 계약을 구현하고 관련 테스트를 추가했다.
+- next_step_on_fail: 현재 OpenSearch Java Client 기반 구현과 Spring AI 경계를 다시 확인한다.
+
+### WL-20260910-001 — 동일 문서 chunk의 검색 결과 독식 방지
+- status: done
+- priority: P0
+- owner: assistant_on_review
+- due_at: unscheduled
+- created_at: 2026-09-10T13:51:07+09:00
+- source: Onyx MCP 평가 PDF, 2026-09-08
+- trigger: 긴 문서의 유사 chunk가 상위 결과를 독식해 다른 문서의 근거를 밀어낸다. 설계 범위가 커서 이번 수정에서 보류한다.
+- action: 문서별 chunk 반환 상한과 space·repository 범위 필터를 비교하고 최소 변경으로 결과 다양성을 보장한다.
+- done_when: 재현 질의에서 동일 logical document는 검색 결과 하나만 차지하고 다른 문서가 상위 결과에 남는 동작이 테스트로 검증된다.
+- last_checked_at: 2026-09-11T01:55:02+09:00
+- result: 9fa27fec3에서 source_document_id 기준 OpenSearch collapse를 추가해 동일 logical document의 중복 chunk를 제거했고 검색 회귀 테스트로 검증했다.
+- next_step_on_fail: collapse 이후에도 다양성이 부족하면 connector 범위 필터와 후보 배수를 별도로 측정한다.
 
 ### WL-20260910-002 — limit 증가에 따른 MCP 응답 토큰 과대 방지
 - status: done
