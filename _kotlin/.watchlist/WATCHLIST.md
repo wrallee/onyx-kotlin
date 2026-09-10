@@ -149,6 +149,20 @@ This file records deferred checks. It does not schedule work.
 - result:
 - next_step_on_fail: OpenSearch 후보 조회와 MCP 후처리 중 더 작은 공통 수정 지점을 다시 확인한다.
 
+### WL-20260911-001 — cross-pair 중복 문서의 최신 복사본 선택
+- status: open
+- priority: P1
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-11T07:20:19+09:00
+- source: PR #25; backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/OpenSearchIndexer.kt; fix/mcp-filter-contract f1e82cfd1
+- trigger: 서로 다른 base URL은 source_document_id로 구분되지만, 같은 논리 문서를 여러 ccPair가 다른 시점에 색인하면 hybrid collapse가 최신본 대신 검색 점수가 높은 복사본을 선택할 수 있다. keyword와 semantic 검색은 cross-pair collapse를 적용하지 않는다.
+- action: 정규화한 논리 문서 ID와 최신본 우선 atomic upsert를 PR #25 이후 통합하고, pair별 membership과 삭제 동작을 함께 검증한다.
+- done_when: 서로 다른 base URL의 동일 문서 번호는 분리되고, 같은 논리 문서의 구버전과 신버전이 함께 있어도 keyword·semantic·hybrid 검색과 context가 최신 내용만 반환한다.
+- last_checked_at:
+- result:
+- next_step_on_fail: 색인 단계의 최신본 통합과 검색 단계의 최신본 선택 중 더 작은 공통 수정 지점을 다시 비교한다.
+
 ## Done
 
 ### WL-20260910-002 — limit 증가에 따른 MCP 응답 토큰 과대 방지

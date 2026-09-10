@@ -123,6 +123,27 @@ class OpenSearchIndexerIntegrationTest {
     }
 
     @Test
+    fun contextRangeStaysWithinTheSelectedConnectorPair() {
+        val indexer = indexer()
+        indexer.upsert(7, "shared", 0, "Seven", "sevensignal", null, emptyMap(), vector(0.1))
+        indexer.upsert(7, "shared", 1, "Seven", "pair seven context", null, emptyMap(), vector(0.1))
+        indexer.upsert(9, "shared", 0, "Nine", "ninesignal", null, emptyMap(), vector(0.2))
+        indexer.upsert(9, "shared", 1, "Nine", "pair nine context", null, emptyMap(), vector(0.2))
+
+        val searchResult = indexer.keywordSearch("sevensignal", emptyList(), 1).single()
+        val selected = requireNotNull(indexer.chunkById(searchResult.id))
+        val chunks = indexer.chunksInRange(
+            requireNotNull(selected.ccPairId),
+            selected.sourceDocumentId,
+            0,
+            1,
+        )
+
+        assertThat(chunks.map(SearchCandidate::content))
+            .containsExactly("sevensignal", "pair seven context")
+    }
+
+    @Test
     fun keywordAndVectorSearchUseTheUnionOfSelectedDocumentSets() {
         val indexer = indexer()
         indexer.upsert(7, "engineering", 0, "Guide", "deployment needle", null, emptyMap(), vector(0.1), listOf("Engineering"))

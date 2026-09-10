@@ -234,7 +234,18 @@ class OpenSearchIndexer(
             ?.let { Query.of { q -> q.bool { b -> b.filter(it) } } }
     }
 
-    fun chunksInRange(sourceDocumentId: String, minChunkId: Int, maxChunkId: Int): List<SearchCandidate> {
+    fun chunkById(id: String): SearchCandidate? {
+        require(id.isNotBlank()) { "id must not be blank" }
+        ensureIndex()
+        val response = client.get(
+            { get -> get.index(properties.indexName).id(id) },
+            OpenSearchChunkDocument::class.java,
+        )
+        val source = response.source() ?: return null
+        return source.toSearchCandidate(response.id(), 0.0, mapper)
+    }
+
+    fun chunksInRange(ccPairId: Long, sourceDocumentId: String, minChunkId: Int, maxChunkId: Int): List<SearchCandidate> {
         require(minChunkId <= maxChunkId) { "minChunkId must be <= maxChunkId" }
         ensureIndex()
 
@@ -242,8 +253,9 @@ class OpenSearchIndexer(
             q.bool { b ->
                 b.filter(
                     listOf(
-                        Query.of { q1 -> q1.term { t -> t.field("source_document_id").value(FieldValue.of(sourceDocumentId)) } },
-                        Query.of { q2 -> q2.range { r -> r.field("chunk_id").gte(JsonData.of(minChunkId)).lte(JsonData.of(maxChunkId)) } },
+                        Query.of { q1 -> q1.term { t -> t.field("cc_pair_id").value(FieldValue.of(ccPairId)) } },
+                        Query.of { q2 -> q2.term { t -> t.field("source_document_id").value(FieldValue.of(sourceDocumentId)) } },
+                        Query.of { q3 -> q3.range { r -> r.field("chunk_id").gte(JsonData.of(minChunkId)).lte(JsonData.of(maxChunkId)) } },
                     ),
                 )
             }

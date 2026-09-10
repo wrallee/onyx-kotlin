@@ -96,8 +96,9 @@ directly.
 ```
 
 The `search` tool accepts an optional `document_sets` array. It searches the
-union of those sets and returns metadata with a short excerpt. Use
-`get_document_context` to read selected results. The default limit is 30.
+union of those sets and returns metadata with a short excerpt and opaque `id`.
+Pass that `id` to `get_document_context` to read the same indexed copy. The
+default limit is 30.
 Hybrid search retrieves five times the requested limit before OpenSearch
 normalizes and collapses results by document. Set
 `ONYX_SEARCH_CANDIDATE_MULTIPLIER` to change that multiplier.
