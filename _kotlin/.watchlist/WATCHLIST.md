@@ -149,6 +149,20 @@ This file records deferred checks. It does not schedule work.
 - result:
 - next_step_on_fail: 요청 응답과 backend 로그를 DB 상태 전후와 대조해 API 처리 실패와 화면 갱신 실패를 분리한다.
 
+### WL-20260911-004 — Resilience4j 기반 커넥터 부하 및 장애 격리
+- status: open
+- priority: P1
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-11T08:11:09+09:00
+- source: PR #28; backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteJsonClient.kt; backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionWorker.kt
+- trigger: 현재 remote connector 요청에는 대상 서버별 QPS, 동시 실행 수, 연속 장애 격리가 없다. 단일 worker의 직렬 실행은 worker replica가 늘어나면 같은 사내 공용 서버의 부하 상한을 보장하지 못한다.
+- action: Spring Boot 4 호환성을 확인한 뒤 Resilience4j RateLimiter, Bulkhead, CircuitBreaker를 공통 remote connector 경계에 적용한다. 서버 origin별 정책, Retry-After 우선 처리, 대상 오류 분류와 여러 worker에서의 적용 범위를 정의한다.
+- done_when: Jira, Confluence, GitHub 요청이 설정한 origin별 QPS와 동시 실행 상한을 지키고, 지정한 일시적 장애에만 circuit이 열린다. 4xx 인증·권한 오류와 429가 잘못 집계되지 않으며 부하·복구 동작이 테스트로 검증된다.
+- last_checked_at:
+- result:
+- next_step_on_fail: Spring Boot 4 starter 호환성이 없으면 Resilience4j core의 programmatic decorator를 사용하고, 여러 worker의 전역 상한은 분산 slot으로 분리한다.
+
 ## Done
 
 ### WL-20260901-005 — Confluence space probe의 lazy 계약 복구
