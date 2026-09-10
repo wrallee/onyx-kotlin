@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/wrallee/Workspace/onyx-kotlin/_kotlin/docs/plans/2026-09-01-kotlin-backend-foss-parity.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Kotlin Backend FOSS 동작 호환 구현 계획",
+  "summary": "Implementation plan for restoring Kotlin management APIs and File, Jira, Confluence, and GitHub connectors to Python FOSS behavior with regression tests.",
+  "scope": ["Kotlin backend", "management APIs", "File connector", "Jira connector", "Confluence connector", "GitHub connector", "checkpoints", "pruning", "permission sync", "PostgreSQL", "regression tests"],
+  "cross_refs": ["docs/superpowers/specs/2026-09-01-kotlin-backend-foss-parity-design.md", ".watchlist/WATCHLIST.md", "backend/PYTHON_PARITY.md", "PYTHON_PARITY.md", "_kotlin/backend/PYTHON_PARITY.md", "README.md", "SOURCE_PROVENANCE.md", "_kotlin/README.md", "_kotlin/SOURCE_PROVENANCE.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

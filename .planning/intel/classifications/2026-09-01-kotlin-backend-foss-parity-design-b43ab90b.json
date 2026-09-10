@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/wrallee/Workspace/onyx-kotlin/_kotlin/docs/specs/2026-09-01-kotlin-backend-foss-parity-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Kotlin Backend FOSS 동작 호환 설계",
+  "summary": "Design for Kotlin backend parity with Python FOSS management, connectors, ingestion, checkpoints, pruning, document permission synchronization, and Web contracts, including test requirements and exclusions.",
+  "scope": ["Kotlin backend", "Python FOSS", "Credential", "Connector", "CC Pair", "Document Set", "File", "Jira", "Confluence", "GitHub", "ingestion", "checkpoint", "pruning", "document permissions", "PostgreSQL", "OpenSearch", "Web contracts"],
+  "cross_refs": ["README"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
