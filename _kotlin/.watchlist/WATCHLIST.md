@@ -149,6 +149,20 @@ This file records deferred checks. It does not schedule work.
 - result:
 - next_step_on_fail: OpenSearch 후보 조회와 MCP 후처리 중 더 작은 공통 수정 지점을 다시 확인한다.
 
+### WL-20260910-003 — GitHub PR 리뷰 댓글 문서 정규화
+- status: open
+- priority: P2
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-10T21:02:44+09:00
+- source: https://github.com/wrallee/onyx-kotlin/pull/26
+- trigger: 현재 PR 본문과 리뷰 댓글을 하나의 content 필드에 결합한다. 기존 검색 구조에는 적합하지만 댓글별 식별자와 스레드 관계는 보존하지 않는다.
+- action: 리뷰 댓글 검색 요구가 커지면 PR, 리뷰 스레드, 댓글을 안정적인 ID와 parent_pr_id로 정규화하고 전체 GitHub connector 재수집 절차를 정의한다.
+- done_when: 댓글이 PR 또는 리뷰 스레드 단위 문서로 색인되고 parent 기반 결과 중복 억제, 삭제 반영, 전체 재수집이 테스트로 검증된다.
+- last_checked_at:
+- result:
+- next_step_on_fail: 현재 PR content 결합 방식을 유지하고 댓글 누적 크기 제한과 문서 단위 collapse를 계속 적용한다.
+
 ## Done
 
 ### WL-20260910-002 — limit 증가에 따른 MCP 응답 토큰 과대 방지

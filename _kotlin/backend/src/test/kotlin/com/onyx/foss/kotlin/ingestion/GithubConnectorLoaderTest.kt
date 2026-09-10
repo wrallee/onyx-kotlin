@@ -269,6 +269,65 @@ class GithubConnectorLoaderTest {
     }
 
     @Test
+    fun reviewCommentPaginationSupportsGithubEnterpriseApiBase() = MockWebServer().use { server ->
+        val prefix = "/api/v3"
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "$prefix/repos/test-org/test-repo" -> json(repoJson())
+                "$prefix/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
+                "$prefix/repos/test-org/test-repo/pulls/7" -> {
+                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode).put(
+                        "review_comments_url",
+                        server.url("$prefix/repos/test-org/test-repo/pulls/7/comments").toString(),
+                    )
+                    json(mapper.writeValueAsString(detail))
+                }
+                "$prefix/repos/test-org/test-repo/pulls/7/comments" -> {
+                    if (request.requestUrl!!.queryParameter("page") == "2") {
+                        json("""[{"body":"second"}]""")
+                    } else {
+                        json("""[{"body":"first"}]""").setHeader(
+                            "Link",
+                            "<${server.url("$prefix/repos/test-org/test-repo/pulls/7/comments?page=2")}>; rel=\"next\"",
+                        )
+                    }
+                }
+                else -> json("[]", 404)
+            }
+        }
+
+        val document = loader().load(config(server, basePath = prefix), credentials(), null)
+            .flatMap { it.documents }.single()
+
+        assertContains(document.content, "Review comment:\nfirst\n\nReview comment:\nsecond")
+    }
+
+    @Test
+    fun oversizedReviewCommentsYieldFailure() = MockWebServer().use { server ->
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "/repos/test-org/test-repo" -> json(repoJson())
+                "/repos/test-org/test-repo/pulls" -> json("[${pull(7)}]")
+                "/repos/test-org/test-repo/pulls/7" -> {
+                    val detail = (mapper.readTree(pull(7)).deepCopy() as ObjectNode).put(
+                        "review_comments_url",
+                        server.url("/repos/test-org/test-repo/pulls/7/comments").toString(),
+                    )
+                    json(mapper.writeValueAsString(detail))
+                }
+                "/repos/test-org/test-repo/pulls/7/comments" -> json(
+                    mapper.writeValueAsString(listOf(mapOf("body" to "x".repeat(8 * 1024 * 1024 + 1)))),
+                )
+                else -> json("[]")
+            }
+        }
+
+        val failure = loader().load(config(server), credentials(), null).flatMap { it.failures }.single()
+
+        assertContains(failure.message, "review comment limit exceeded: content exceeds")
+    }
+
+    @Test
     fun loadFromCheckpointHappyPath() = MockWebServer().use { server ->
         server.dispatcher = routes(pulls = listOf(pull(1), pull(2)), issues = listOf(issue(3), issue(4)))
 
@@ -1002,8 +1061,8 @@ class GithubConnectorLoaderTest {
 
     private fun credentials(): JsonNode = mapper.readTree("""{"github_access_token":"token"}""")
 
-    private fun config(server: MockWebServer, extra: String = ""): JsonNode = mapper.readTree(
-        """{"github_base_url":"${server.startAndBase()}","repo_owner":"test-org","repositories":"test-repo","include_prs":true,"include_issues":false,"include_files":false${if (extra.isBlank()) "" else ",$extra"}}""",
+    private fun config(server: MockWebServer, extra: String = "", basePath: String = ""): JsonNode = mapper.readTree(
+        """{"github_base_url":"${server.startAndBase()}$basePath","repo_owner":"test-org","repositories":"test-repo","include_prs":true,"include_issues":false,"include_files":false${if (extra.isBlank()) "" else ",$extra"}}""",
     )
 
     private fun fileConfig(server: MockWebServer, branch: String? = null): JsonNode = config(
