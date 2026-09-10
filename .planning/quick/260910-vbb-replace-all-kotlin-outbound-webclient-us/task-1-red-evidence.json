@@ -1,0 +1,9 @@
+{
+  "command": "cd _kotlin/backend && ./gradlew test --tests \"com.onyx.foss.kotlin.ingestion.ModelServerClientTest\" --no-daemon",
+  "exitCode": 1,
+  "output": "not ok 1 - readTimeoutAppliesToEmbeddingResponse()\n# tests 9\n# pass 4\n# fail 5\n# cancelled 0\n",
+  "targetTest": "readTimeoutAppliesToEmbeddingResponse()",
+  "targetFile": "ModelServerClientTest.kt",
+  "expected": "ResourceAccessException from the blocking RestClient path",
+  "actual": "WebClientRequestException from the reactive WebClient path"
+}

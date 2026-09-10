@@ -1,0 +1,9 @@
+{
+  "command": "cd _kotlin/backend && ./gradlew test --tests \"com.onyx.foss.kotlin.ingestion.RemoteConnectorLoadersTest.remoteClientUsesBlockingTypedHttpErrors\" --no-daemon",
+  "exitCode": 1,
+  "output": "not ok 1 - remoteClientUsesBlockingTypedHttpErrors()\n# tests 1\n# pass 0\n# fail 1\n# cancelled 0\n",
+  "targetTest": "remoteClientUsesBlockingTypedHttpErrors()",
+  "targetFile": "RemoteConnectorLoadersTest.kt",
+  "expected": "HttpServerErrorException.InternalServerError from the blocking RestClient path",
+  "actual": "WebClientResponseException.InternalServerError from the reactive WebClient path"
+}
