@@ -398,6 +398,7 @@ class OpenSearchIndexerTest {
                 MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
                     .setBody("""{"timed_out":false,"total":2,"updated":0,"noops":2,"version_conflicts":0,"failures":[]}"""),
             )
+            server.enqueue(jsonResponse(sourceDocumentIdsResponse("one", "two")))
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
@@ -415,6 +416,25 @@ class OpenSearchIndexerTest {
                 .containsExactlyInAnyOrder("one", "two")
             assertThat(body.path("script").path("params").path("document_sets").toList().map{ it.asString() })
                 .containsExactly("first", "second")
+        }
+    }
+
+    @Test
+    fun documentSetUpdateRejectsMissingDocumentsHiddenByChunkCount() {
+        MockWebServer().use { server ->
+            enqueueKeywordMapping(server)
+            server.enqueue(
+                jsonResponse("""{"timed_out":false,"total":3,"updated":0,"noops":3,"version_conflicts":0,"failures":[]}"""),
+            )
+            server.enqueue(jsonResponse(sourceDocumentIdsResponse("one")))
+            server.start()
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
+
+            val error = org.junit.jupiter.api.assertThrows<IllegalStateException> {
+                indexer.updateDocumentSets(7, setOf("one", "two"), listOf("Engineering"))
+            }
+
+            assertThat(error.message).isEqualTo("OpenSearch did not fully apply the document set update")
         }
     }
 
@@ -501,6 +521,19 @@ class OpenSearchIndexerTest {
                         ),
                     ),
                 ),
+            ),
+        ),
+    )
+
+    private fun sourceDocumentIdsResponse(vararg ids: String): String = mapper.writeValueAsString(
+        mapOf(
+            "took" to 1,
+            "timed_out" to false,
+            "_shards" to mapOf("total" to 1, "successful" to 1, "skipped" to 0, "failed" to 0),
+            "hits" to mapOf(
+                "hits" to ids.map { id ->
+                    mapOf("_index" to "documents", "_id" to "$id-0", "_source" to mapOf("source_document_id" to id))
+                },
             ),
         ),
     )

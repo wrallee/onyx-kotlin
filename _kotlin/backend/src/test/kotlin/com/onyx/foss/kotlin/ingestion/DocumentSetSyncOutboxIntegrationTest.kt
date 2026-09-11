@@ -54,6 +54,7 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
 
     @BeforeEach
     fun resetDatabase() {
+        server.dispatcher = documentSetDispatcher()
         while (server.takeRequest(1, TimeUnit.MILLISECONDS) != null) {
             // Drain requests from the prior test.
         }
@@ -110,8 +111,8 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
         assertThat(failed.status).isEqualTo(DocumentSetSyncStatus.PENDING)
         assertThat(failed.attemptCount).isEqualTo(1)
         assertThat(failed.lastError).contains("unavailable")
-        val firstPage = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
-        requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+        val firstPage = takeUpdateRequest()
+        takeUpdateRequest()
 
         server.enqueue(success(500))
         server.enqueue(success(1))
@@ -121,8 +122,8 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
         assertThat(completed.status).isEqualTo(DocumentSetSyncStatus.DONE)
         assertThat(completed.attemptCount).isEqualTo(2)
         assertThat(completed.lastError).isNull()
-        val replayedFirstPage = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
-        val replayedLastPage = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+        val replayedFirstPage = takeUpdateRequest()
+        val replayedLastPage = takeUpdateRequest()
         assertThat(sourceIds(firstPage)).hasSize(500)
         assertThat(sourceIds(replayedFirstPage)).containsExactlyInAnyOrderElementsOf(sourceIds(firstPage))
         assertThat(sourceIds(replayedLastPage)).hasSize(1)
@@ -234,6 +235,7 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
             private var count = 0
 
             override fun dispatch(request: RecordedRequest): MockResponse {
+                if (isSourceIdSearch(request)) return sourceDocumentIdsResponse(request)
                 count += 1
                 if (count == 1) {
                     firstRequestStarted.countDown()
@@ -295,6 +297,7 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
             private var count = 0
 
             override fun dispatch(request: RecordedRequest): MockResponse {
+                if (isSourceIdSearch(request)) return sourceDocumentIdsResponse(request)
                 count += 1
                 if (count == 1) {
                     firstRequestStarted.countDown()
@@ -322,14 +325,14 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
             assertThat(claims.claimNext()).isNull()
             releaseFirstResponse.countDown()
             assertThat(workerA.get(10, TimeUnit.SECONDS)).isTrue()
-            assertThat(server.requestCount).isEqualTo(requestsBefore + 1)
+            assertThat(server.requestCount).isEqualTo(requestsBefore + 2)
 
             assertThat(worker.process(claimB)).isTrue()
             val claimRowTwo = requireNotNull(claims.claimNext())
             assertThat(claimRowTwo.id).isEqualTo(2L)
             assertThat(worker.process(claimRowTwo)).isTrue()
 
-            val requests = List(5) { requireNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }
+            val requests = List(5) { takeUpdateRequest() }
             assertThat(documentSetNames(requests.first())).containsExactly("old")
             assertThat(requests.drop(1).map(::documentSetNames)).allSatisfy {
                 assertThat(it).containsExactly("latest")
@@ -406,6 +409,39 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
         .setResponseCode(200)
         .setHeader("Content-Type", "application/json")
         .setBody("""{"timed_out":false,"total":$total,"updated":$total,"noops":0,"version_conflicts":0,"failures":[]}""")
+
+    private fun documentSetDispatcher() = object : QueueDispatcher() {
+        override fun dispatch(request: RecordedRequest): MockResponse =
+            if (isSourceIdSearch(request)) sourceDocumentIdsResponse(request) else super.dispatch(request)
+    }
+
+    private fun isSourceIdSearch(request: RecordedRequest): Boolean =
+        request.requestUrl?.encodedPath == "/documents/_search"
+
+    private fun sourceDocumentIdsResponse(request: RecordedRequest): MockResponse = MockResponse()
+        .setResponseCode(200)
+        .setHeader("Content-Type", "application/json")
+        .setBody(
+            mapper.writeValueAsString(
+                mapOf(
+                    "took" to 1,
+                    "timed_out" to false,
+                    "_shards" to mapOf("total" to 1, "successful" to 1, "skipped" to 0, "failed" to 0),
+                    "hits" to mapOf(
+                        "hits" to sourceIds(request).map { id ->
+                            mapOf("_index" to "documents", "_id" to "$id-0", "_source" to mapOf("source_document_id" to id))
+                        },
+                    ),
+                ),
+            ),
+        )
+
+    private fun takeUpdateRequest(): RecordedRequest {
+        while (true) {
+            val request = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+            if (request.requestUrl?.encodedPath == "/documents/_update_by_query") return request
+        }
+    }
 
     private fun sourceIds(request: okhttp3.mockwebserver.RecordedRequest): List<String> = mapper
         .readTree(request.body.clone().readUtf8())

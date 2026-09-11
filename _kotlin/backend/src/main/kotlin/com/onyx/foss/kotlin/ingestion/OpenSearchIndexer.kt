@@ -349,13 +349,30 @@ class OpenSearchIndexer(
         val failures = response.failures()
         val versionConflicts = response.versionConflicts() ?: -1L
         val timedOut = response.timedOut() ?: true
-
         check(
             !timedOut &&
                 failures.isEmpty() &&
                 versionConflicts == 0L &&
-                total >= sourceDocumentIds.size && updated + noops == total,
+                total >= 0 && updated + noops == total,
         ) { "OpenSearch did not fully apply the document set update" }
+        if (sourceDocumentIds.size == 1) {
+            check(total > 0) { "OpenSearch did not fully apply the document set update" }
+            return
+        }
+
+        val matchedSourceDocumentIds = client.search(
+            OpenSearchSearchRequest.Builder()
+                .index(properties.indexName)
+                .size(sourceDocumentIds.size)
+                .query(query)
+                .collapse { it.field(EXACT_DOCUMENT_ID_FIELD) }
+                .source { it.filter { filter -> filter.includes(EXACT_DOCUMENT_ID_FIELD) } }
+                .build(),
+            OpenSearchChunkDocument::class.java,
+        ).hits().hits().mapNotNull { it.source()?.sourceDocumentId }.toSet()
+        check(matchedSourceDocumentIds == sourceDocumentIds) {
+            "OpenSearch did not fully apply the document set update"
+        }
     }
 
     private fun deleteByQuery(query: Query, operation: String) {
