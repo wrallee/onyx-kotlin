@@ -124,6 +124,20 @@ services:
 
   opensearch:
     image: opensearchproject/opensearch:3.6.0
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if ! /usr/share/opensearch/bin/opensearch-plugin list | grep -Fx analysis-nori; then
+          plugin_zip=$$(mktemp)
+          trap 'rm -f "$$plugin_zip"' EXIT
+          curl --cacert /tmp/host-ca-certificates.crt -fSsL -o "$$plugin_zip" https://artifacts.opensearch.org/releases/plugins/analysis-nori/3.6.0/analysis-nori-3.6.0.zip
+          /usr/share/opensearch/bin/opensearch-plugin install --batch "file:$$plugin_zip"
+          rm -f "$$plugin_zip"
+          trap - EXIT
+        fi
+        exec /usr/share/opensearch/opensearch-docker-entrypoint.sh opensearch
     environment:
       discovery.type: single-node
       OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set a strong OpenSearch admin password}
@@ -137,6 +151,7 @@ services:
         hard: 65536
     volumes:
       - opensearch_data:/usr/share/opensearch/data
+      - ${OPENSEARCH_PLUGIN_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}:/tmp/host-ca-certificates.crt:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fkSs -u admin:$${OPENSEARCH_INITIAL_ADMIN_PASSWORD} https://localhost:9200/_cluster/health >/dev/null"]
       interval: 10s

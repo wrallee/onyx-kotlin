@@ -11,7 +11,6 @@ import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
 import org.opensearch.client.opensearch.OpenSearchClient
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import io.netty.handler.ssl.SslContextBuilder
-import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
@@ -26,8 +25,6 @@ import reactor.core.publisher.Mono
 import reactor.netty.http.server.HttpServer
 import java.time.Duration
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 class OpenSearchIndexerTest {
 
@@ -47,7 +44,7 @@ class OpenSearchIndexerTest {
     fun `keyword and vector search apply the same document set filter`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(acknowledgedResponse())
             server.enqueue(jsonResponse(searchResponse("keyword", 2.0)))
             server.enqueue(jsonResponse(searchResponse("vector", 1.5)))
             server.start()
@@ -86,7 +83,7 @@ class OpenSearchIndexerTest {
     fun `keyword search applies source type and updated-after filters`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(acknowledgedResponse())
             server.enqueue(jsonResponse(searchResponse("keyword", 2.0)))
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
@@ -115,7 +112,7 @@ class OpenSearchIndexerTest {
     fun `hybrid search uses configured candidate depth and returns requested size`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(acknowledgedResponse())
             server.enqueue(jsonResponse("""{"acknowledged":true}"""))
             server.enqueue(jsonResponse("{}"))
             server.enqueue(jsonResponse(searchResponse("hybrid", 1.8)))
@@ -174,7 +171,7 @@ class OpenSearchIndexerTest {
     fun `chunksInRange fetches ordered chunks for a document`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(acknowledgedResponse())
             server.enqueue(
                 jsonResponse(
                     """{"took":1,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"hits":[
@@ -209,7 +206,7 @@ class OpenSearchIndexerTest {
     fun `chunkById returns the exact indexed copy`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(jsonResponse(exactMappingResponse()))
+            server.enqueue(acknowledgedResponse())
             server.enqueue(
                 jsonResponse(
                     """{"_index":"documents","_id":"chunk-7","_version":1,"_seq_no":0,"_primary_term":1,"found":true,"_source":{"cc_pair_id":7,"source_document_id":"doc-1","chunk_id":2,"title":"T","content":"center","metadata":{}}}""",
@@ -232,7 +229,7 @@ class OpenSearchIndexerTest {
     }
 
     @Test
-    fun `new index stores embeddings as 768 dimensional knn vectors`() {
+    fun `new index uses the complete strict Nori mapping`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(404))
             server.enqueue(acknowledgedResponse())
@@ -245,10 +242,41 @@ class OpenSearchIndexerTest {
             server.takeRequest()
             val create = server.takeRequest()
             val body = mapper.readTree(create.body.readUtf8())
-            val embedding = body.path("mappings").path("properties").path("embedding")
+            val mappings = body.path("mappings")
+            val properties = mappings.path("properties")
+            val embedding = properties.path("embedding")
             assertThat(create.path).isEqualTo("/documents")
             val knnSetting = body.path("settings").let { if (it.has("index")) it.path("index").path("knn") else it.path("knn") }
             assertThat(knnSetting.asBoolean()).isTrue()
+            assertThat(mappings.path("dynamic").asString()).isEqualTo("strict")
+            assertThat(properties.properties().map { it.key }).containsExactlyInAnyOrder(
+                "cc_pair_id",
+                "source_document_id",
+                "chunk_id",
+                "title",
+                "content",
+                "link",
+                "metadata",
+                "embedding",
+                "source_type",
+                "document_sets",
+                "doc_updated_at",
+                "primary_owners",
+                "secondary_owners",
+                "external_user_emails",
+                "external_user_group_ids",
+                "is_public",
+            )
+            assertThat(properties.path("title").path("analyzer").asString()).isEqualTo("nori")
+            assertThat(properties.path("title").path("index_options").asString()).isEqualTo("offsets")
+            assertThat(properties.path("title").path("fields").path("keyword").path("ignore_above").asInt())
+                .isEqualTo(256)
+            assertThat(properties.path("content").path("analyzer").asString()).isEqualTo("nori")
+            assertThat(properties.path("content").path("store").asBoolean()).isTrue()
+            assertThat(properties.path("content").path("index_options").asString()).isEqualTo("offsets")
+            assertThat(properties.path("metadata").path("type").asString()).isEqualTo("object")
+            assertThat(properties.path("metadata").path("enabled").asBoolean()).isFalse()
+            assertThat(properties.path("link").path("index").asBoolean()).isFalse()
             assertThat(embedding.path("type").asString()).isEqualTo("knn_vector")
             assertThat(embedding.path("dimension").asInt()).isEqualTo(768)
             assertThat(embedding.path("method").path("engine").asString()).isEqualTo("lucene")
@@ -276,14 +304,13 @@ class OpenSearchIndexerTest {
     }
 
     @Test
-    fun `existing numeric embedding mapping requires an explicit index reset`() {
+    fun `incompatible existing mapping fails before any write or migration request`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
             server.enqueue(
-                MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
-                    .setBody(exactMappingResponse("float")),
+                MockResponse().setResponseCode(400).setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":{"type":"illegal_argument_exception","reason":"mapper conflict"},"status":400}"""),
             )
-            server.enqueue(MockResponse().setResponseCode(200))
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
@@ -291,7 +318,11 @@ class OpenSearchIndexerTest {
                 indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1))
             }
 
-            assertThat(error.message).contains("delete the OpenSearch index")
+            assertThat(error.message).contains("mapping")
+            assertThat(recordedRequests(server)).containsExactly(
+                "HEAD /documents",
+                "PUT /documents/_mapping",
+            )
         }
     }
 
@@ -310,7 +341,7 @@ class OpenSearchIndexerTest {
                     request.method().name() == "HEAD" -> response.send()
                     request.uri().endsWith("/_mapping") -> response
                         .header("Content-Type", "application/json")
-                        .sendString(Mono.just(exactMappingResponse()))
+                        .sendString(Mono.just("""{"acknowledged":true}"""))
                     else -> response.header("Content-Type", "application/json").sendString(
                         Mono.just("""{"timed_out":false,"total":0,"deleted":0,"version_conflicts":0,"failures":[]}"""),
                     )
@@ -367,6 +398,7 @@ class OpenSearchIndexerTest {
                 MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
                     .setBody("""{"timed_out":false,"total":2,"updated":0,"noops":2,"version_conflicts":0,"failures":[]}"""),
             )
+            server.enqueue(jsonResponse(sourceDocumentIdsResponse("one", "two")))
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
@@ -384,6 +416,25 @@ class OpenSearchIndexerTest {
                 .containsExactlyInAnyOrder("one", "two")
             assertThat(body.path("script").path("params").path("document_sets").toList().map{ it.asString() })
                 .containsExactly("first", "second")
+        }
+    }
+
+    @Test
+    fun documentSetUpdateRejectsMissingDocumentsHiddenByChunkCount() {
+        MockWebServer().use { server ->
+            enqueueKeywordMapping(server)
+            server.enqueue(
+                jsonResponse("""{"timed_out":false,"total":3,"updated":0,"noops":3,"version_conflicts":0,"failures":[]}"""),
+            )
+            server.enqueue(jsonResponse(sourceDocumentIdsResponse("one")))
+            server.start()
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
+
+            val error = org.junit.jupiter.api.assertThrows<IllegalStateException> {
+                indexer.updateDocumentSets(7, setOf("one", "two"), listOf("Engineering"))
+            }
+
+            assertThat(error.message).isEqualTo("OpenSearch did not fully apply the document set update")
         }
     }
 
@@ -413,13 +464,9 @@ class OpenSearchIndexerTest {
     }
 
     @Test
-    fun existingIndexGetsMissingTypedSourceMetadataMappings() {
+    fun existingIndexGetsTheCompleteStrictMappingBeforeTheWrite() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
-            server.enqueue(
-                MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
-                    .setBody("""{"documents":{"mappings":{"properties":{"source_document_id":{"type":"keyword"}}}}}"""),
-            )
             server.enqueue(acknowledgedResponse())
             server.enqueue(indexSuccessResponse())
             server.start()
@@ -438,43 +485,16 @@ class OpenSearchIndexerTest {
             )
 
             server.takeRequest()
-            server.takeRequest()
             val mappingRequest = server.takeRequest()
-            val mapping = mapper.readTree(mappingRequest.body.readUtf8()).path("properties")
+            val mapping = mapper.readTree(mappingRequest.body.readUtf8())
             assertThat(mappingRequest.path).isEqualTo("/documents/_mapping")
-            assertThat(mapping.path("doc_updated_at").path("type").asString()).isEqualTo("date")
-            assertThat(mapping.path("primary_owners").path("type").asString()).isEqualTo("keyword")
-            assertThat(mapping.path("secondary_owners").path("type").asString()).isEqualTo("keyword")
-        }
-    }
-
-    @Test
-    fun uncertainAliasSwapPreservesTheReindexedCopyForRecovery() {
-        MockWebServer().use { server ->
-            server.dispatcher = migrationDispatcher(aliasAppliedDespiteResponse = false)
-            server.start()
-            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
-
-            org.junit.jupiter.api.assertThrows<IllegalStateException> {
-                indexer.deleteDocuments(7, setOf("one"))
-            }
-
-            val requests = recordedRequests(server)
-            assertThat(requests).contains("PUT /documents/_block/write")
-            assertThat(requests.none { it.startsWith("DELETE /documents-exact-") }).isTrue()
-        }
-    }
-
-    @Test
-    fun uncertainAliasResponseRecoversWhenTheLogicalIndexIsAlreadyExact() {
-        MockWebServer().use { server ->
-            server.dispatcher = migrationDispatcher(aliasAppliedDespiteResponse = true)
-            server.start()
-            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
-
-            indexer.deleteDocuments(7, setOf("one"))
-
-            assertThat(recordedRequests(server)).contains("POST /documents/_delete_by_query?refresh=true")
+            assertThat(mapping.path("dynamic").asString()).isEqualTo("strict")
+            assertThat(mapping.path("properties").path("title").path("analyzer").asString()).isEqualTo("nori")
+            assertThat(mapping.path("properties").path("content").path("analyzer").asString()).isEqualTo("nori")
+            assertThat(mapping.path("properties").path("embedding").path("dimension").asInt()).isEqualTo(768)
+            assertThat(mapping.path("properties").path("doc_updated_at").path("type").asString()).isEqualTo("date")
+            assertThat(mapping.path("properties").path("primary_owners").path("type").asString()).isEqualTo("keyword")
+            assertThat(mapping.path("properties").path("secondary_owners").path("type").asString()).isEqualTo("keyword")
         }
     }
 
@@ -505,69 +525,15 @@ class OpenSearchIndexerTest {
         ),
     )
 
-    private fun migrationDispatcher(aliasAppliedDespiteResponse: Boolean): Dispatcher {
-        val logicalMappingReads = AtomicInteger()
-        val replacementExists = AtomicBoolean(false)
-        return object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                val path = requireNotNull(request.path)
-                val method = requireNotNull(request.method)
-                return when {
-                    method == "HEAD" && path == "/documents" -> MockResponse().setResponseCode(200)
-                    method == "HEAD" && path.startsWith("/documents-exact-") ->
-                        MockResponse().setResponseCode(if (replacementExists.get()) 200 else 404)
-                    method == "GET" && path == "/documents/_mapping" -> {
-                        val exact = aliasAppliedDespiteResponse && logicalMappingReads.getAndIncrement() > 0
-                        jsonResponse(if (exact) exactMappingResponse() else legacyMappingResponse())
-                    }
-                    method == "PUT" && path == "/documents/_block/write" ->
-                        jsonResponse("""{"acknowledged":true,"shards_acknowledged":true,"indices":[]}""")
-                    method == "PUT" && path.startsWith("/documents-exact-") -> {
-                        replacementExists.set(true)
-                        jsonResponse("""{"acknowledged":true,"shards_acknowledged":true,"indices":[]}""")
-                    }
-                    method == "GET" && path.startsWith("/documents-exact-") && path.endsWith("/_mapping") ->
-                        jsonResponse(exactMappingResponse())
-                    method == "GET" && path.endsWith("/_count") -> jsonResponse("""{"count":1,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}""")
-                    method == "POST" && path.startsWith("/_reindex") -> jsonResponse(
-                        """{"took":1,"timed_out":false,"total":1,"created":1,"updated":0,"version_conflicts":0,"failures":[]}""",
-                    )
-                    method == "POST" && path == "/_aliases" -> jsonResponse("""{"acknowledged":false}""")
-                    method == "POST" && path.startsWith("/documents/_delete_by_query") -> jsonResponse(
-                        """{"took":1,"timed_out":false,"total":0,"deleted":0,"batches":0,"version_conflicts":0,"failures":[]}""",
-                    )
-                    else -> MockResponse().setResponseCode(500).setBody("Unexpected $method $path")
-                }
-            }
-        }
-    }
-
-    private fun legacyMappingResponse(): String =
-        """{"documents":{"mappings":{"properties":{"source_document_id":{"type":"text"}}}}}"""
-
-    private fun exactMappingResponse(embeddingType: String = "knn_vector"): String = mapper.writeValueAsString(
+    private fun sourceDocumentIdsResponse(vararg ids: String): String = mapper.writeValueAsString(
         mapOf(
-            "documents-exact-v1" to mapOf(
-                "mappings" to mapOf(
-                    "properties" to mapOf(
-                        "cc_pair_id" to mapOf("type" to "long"),
-                        "source_document_id" to mapOf("type" to "keyword"),
-                        "chunk_id" to mapOf("type" to "integer"),
-                        "source_type" to mapOf("type" to "keyword"),
-                        "external_user_emails" to mapOf("type" to "keyword"),
-                        "external_user_group_ids" to mapOf("type" to "keyword"),
-                        "is_public" to mapOf("type" to "boolean"),
-                        "document_sets" to mapOf("type" to "keyword"),
-                        "doc_updated_at" to mapOf("type" to "date"),
-                        "primary_owners" to mapOf("type" to "keyword"),
-                        "secondary_owners" to mapOf("type" to "keyword"),
-                        "embedding" to if (embeddingType == "knn_vector") {
-                            mapOf("type" to embeddingType, "dimension" to 768)
-                        } else {
-                            mapOf("type" to embeddingType)
-                        },
-                    ),
-                ),
+            "took" to 1,
+            "timed_out" to false,
+            "_shards" to mapOf("total" to 1, "successful" to 1, "skipped" to 0, "failed" to 0),
+            "hits" to mapOf(
+                "hits" to ids.map { id ->
+                    mapOf("_index" to "documents", "_id" to "$id-0", "_source" to mapOf("source_document_id" to id))
+                },
             ),
         ),
     )
@@ -594,15 +560,10 @@ class OpenSearchIndexerTest {
 
     private fun enqueueKeywordMapping(server: MockWebServer) {
         server.enqueue(MockResponse().setResponseCode(200))
-        server.enqueue(
-            MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
-                .setBody("""{"documents":{"mappings":{"properties":{"source_document_id":{"type":"keyword"}}}}}"""),
-        )
         server.enqueue(acknowledgedResponse())
     }
 
     private fun takeOperationRequest(server: MockWebServer) = server.run {
-        takeRequest()
         takeRequest()
         takeRequest()
         takeRequest()

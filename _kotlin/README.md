@@ -35,6 +35,17 @@ and BGE artifacts remain available for evaluation.
 
 ## Run
 
+Every external or server OpenSearch node must have `analysis-nori` before backend deployment.
+Run this check on each node:
+
+```bash
+/usr/share/opensearch/bin/opensearch-plugin list | grep -Fx analysis-nori
+```
+
+Local Compose installs the plugin idempotently in the stock OpenSearch container.
+The application applies compatible mapping additions and reports incompatible mappings.
+It never deletes or migrates index data.
+
 Download the pinned Granite artifact, then create the local environment file and set a unique credential key:
 
 ```bash
@@ -102,10 +113,6 @@ default limit is 30.
 Hybrid search retrieves five times the requested limit before OpenSearch
 normalizes and collapses results by document. Set
 `ONYX_SEARCH_CANDIDATE_MULTIPLIER` to change that multiplier.
-
-Delete the existing OpenSearch index before this version is deployed. The
-application does not delete it. It rejects an incompatible embedding mapping
-and waits for a clean reindex.
 
 The MCP endpoint has no authentication in this development version. Do not
 expose it beyond the intended private environment until authentication exists.
