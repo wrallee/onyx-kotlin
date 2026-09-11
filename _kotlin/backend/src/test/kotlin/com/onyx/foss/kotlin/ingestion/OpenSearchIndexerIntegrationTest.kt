@@ -9,8 +9,14 @@ import com.onyx.foss.kotlin.opensearch.MinMaxNormalizationPipeline
 import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory
 import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
 import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
-import io.netty.handler.ssl.SslContextBuilder
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory
+import org.apache.hc.client5.http.impl.classic.HttpClients
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder
+import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder
+import org.apache.hc.client5.http.ssl.NoopHostnameVerifier
+import org.apache.hc.client5.http.config.ConnectionConfig
+import org.apache.hc.client5.http.config.RequestConfig
+import org.apache.hc.core5.ssl.SSLContextBuilder
+import org.apache.hc.core5.util.Timeout
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Tag
@@ -20,16 +26,18 @@ import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mock
 import org.springframework.http.MediaType
-import org.springframework.http.client.reactive.ReactorClientHttpConnector
-import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory
+import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.RestClient
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.utility.DockerImageName
 import org.testcontainers.containers.wait.strategy.Wait
-import reactor.netty.http.client.HttpClient
 import java.time.Duration
 import java.time.Instant
+import java.security.KeyStore
+import java.security.cert.CertificateFactory
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -38,7 +46,7 @@ import kotlin.concurrent.withLock
 @Tag("opensearch-integration")
 class OpenSearchIndexerIntegrationTest {
     private val mapper = jacksonObjectMapper()
-    private val client = insecureClient()
+    private val client by lazy(::containerClient)
     private val index = "indexer-test-${UUID.randomUUID()}"
     private val baseUrl get() = "https://${openSearch.host}:${openSearch.getMappedPort(9200)}"
     private val migrationLock = ReentrantLock()
@@ -48,11 +56,16 @@ class OpenSearchIndexerIntegrationTest {
         }.`when`(fence).withOpenSearchIndex(anyString(), any<() -> Unit>() ?: {})
     }
 
+    @Test
+    fun `accepts the container self-signed certificate when verification is disabled`() {
+        indexer().deletePair(1)
+    }
+
     @AfterEach
     fun deleteIndex() {
         get("/_cat/indices/$index*?format=json").forEach { row ->
             client.delete().uri("$baseUrl/${row.path("index").asString()}")
-                .retrieve().toBodilessEntity().block(Duration.ofSeconds(30))
+                .retrieve().toBodilessEntity()
         }
     }
 
@@ -243,13 +256,12 @@ class OpenSearchIndexerIntegrationTest {
         val metadataMapping = mappingProperties().path("metadata")
         assertThat(metadataMapping.path("enabled").asBoolean()).isFalse()
         assertThat(metadataMapping.has("properties")).isFalse()
-        org.junit.jupiter.api.assertThrows<org.springframework.web.reactive.function.client.WebClientResponseException.BadRequest> {
+        org.junit.jupiter.api.assertThrows<HttpClientErrorException.BadRequest> {
             client.put().uri("$baseUrl/$index/_doc/unknown-root")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(mapOf("unknown" to true))
+                .body(mapOf("unknown" to true))
                 .retrieve()
                 .toBodilessEntity()
-                .block(Duration.ofSeconds(30))
         }
         assertThat(exactDocuments("metadata-document").single().path("metadata").path("nested").path("arbitrary"))
             .isNotEmpty()
@@ -296,10 +308,9 @@ class OpenSearchIndexerIntegrationTest {
     private fun exactDocuments(sourceDocumentId: String): List<JsonNode> = client.post()
         .uri("$baseUrl/$index/_search")
         .contentType(MediaType.APPLICATION_JSON)
-        .bodyValue(mapOf("query" to mapOf("term" to mapOf("source_document_id" to sourceDocumentId))))
+        .body(mapOf("query" to mapOf("term" to mapOf("source_document_id" to sourceDocumentId))))
         .retrieve()
-        .bodyToMono(JsonNode::class.java)
-        .block(Duration.ofSeconds(30))
+        .body(JsonNode::class.java)
         ?.path("hits")?.path("hits")?.toList()?.map { it.path("_source") }
         .orEmpty()
 
@@ -315,7 +326,7 @@ class OpenSearchIndexerIntegrationTest {
     ) {
         client.put().uri("$baseUrl/$targetIndex/_doc/$documentId?refresh=true")
             .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(
+            .body(
                 mapOf(
                     "cc_pair_id" to 7,
                     "source_document_id" to sourceDocumentId,
@@ -323,15 +334,15 @@ class OpenSearchIndexerIntegrationTest {
                     "content" to content,
                 ),
             )
-            .retrieve().toBodilessEntity().block(Duration.ofSeconds(30))
+            .retrieve().toBodilessEntity()
     }
 
     private fun put(path: String, body: Any? = null) {
         val request = client.put().uri(baseUrl + path)
         val response = if (body == null) request.retrieve() else {
-            request.contentType(MediaType.APPLICATION_JSON).bodyValue(body).retrieve()
+            request.contentType(MediaType.APPLICATION_JSON).body(body).retrieve()
         }
-        response.toBodilessEntity().block(Duration.ofSeconds(30))
+        response.toBodilessEntity()
     }
 
     private fun compatibleIndexDefinition(): Map<String, Any> = mapOf(
@@ -366,22 +377,50 @@ class OpenSearchIndexerIntegrationTest {
 
     private fun vector(value: Double): List<Double> = List(768) { value }
 
-    private fun insecureClient(): WebClient {
-        val sslContext = SslContextBuilder.forClient()
-            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+    private fun containerClient(): RestClient {
+        val certificate = openSearch.copyFileFromContainer(
+            "/usr/share/opensearch/config/root-ca.pem",
+        ) { CertificateFactory.getInstance("X.509").generateCertificate(it) }
+        val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+            load(null)
+            setCertificateEntry("opensearch-container", certificate)
+        }
+        val sslContext = SSLContextBuilder.create().loadTrustMaterial(trustStore, null).build()
+        val connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+            .setTlsSocketStrategy(
+                ClientTlsStrategyBuilder.create()
+                    .setSslContext(sslContext)
+                    .setHostnameVerifier(NoopHostnameVerifier.INSTANCE)
+                    .buildClassic(),
+            )
+            .setDefaultConnectionConfig(
+                ConnectionConfig.custom()
+                    .setConnectTimeout(Timeout.ofSeconds(30))
+                    .setSocketTimeout(Timeout.ofSeconds(30))
+                    .build(),
+            )
             .build()
-        return WebClient.builder()
+        val requestFactory = HttpComponentsClientHttpRequestFactory(
+            HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultRequestConfig(
+                    RequestConfig.custom()
+                        .setResponseTimeout(Timeout.ofSeconds(30))
+                        .build(),
+                )
+                .build(),
+        )
+        return RestClient.builder()
             .defaultHeaders { it.setBasicAuth(ADMIN_USERNAME, ADMIN_PASSWORD) }
-            .clientConnector(ReactorClientHttpConnector(HttpClient.create().secure { it.sslContext(sslContext) }))
+            .requestFactory(requestFactory)
             .build()
     }
 
     private fun mappingProperties(): JsonNode = get("/$index/_mapping").properties().first().value
         .path("mappings").path("properties")
 
-    private fun get(path: String): JsonNode = requireNotNull(
-        client.get().uri(baseUrl + path).retrieve().bodyToMono(JsonNode::class.java).block(Duration.ofSeconds(30)),
-    )
+    private fun get(path: String): JsonNode =
+        requireNotNull(client.get().uri(baseUrl + path).retrieve().body(JsonNode::class.java))
 
     companion object {
         private const val ADMIN_USERNAME = "admin"

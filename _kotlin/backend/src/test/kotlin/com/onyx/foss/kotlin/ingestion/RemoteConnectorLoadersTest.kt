@@ -1,16 +1,22 @@
 package com.onyx.foss.kotlin.ingestion
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
+import com.onyx.foss.kotlin.config.MAX_REMOTE_RESPONSE_BYTES
+import com.onyx.foss.kotlin.config.RemoteResponseTooLargeException
 import com.onyx.foss.kotlin.domain.ConnectorSource
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.jupiter.api.Test
-import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.client.HttpServerErrorException
+import org.springframework.web.client.RestClient
+import okio.Buffer
 import java.util.Base64
 import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class RemoteConnectorLoadersTest {
@@ -202,8 +208,92 @@ class RemoteConnectorLoadersTest {
         assertEquals(content.length, docs.single().content.length)
     }
 
+    @Test
+    fun remoteClientPreservesTextStatusHeadersAndBody() = MockWebServer().use { server ->
+        server.enqueue(
+            MockResponse().setResponseCode(418)
+                .setHeader("Content-Type", "application/problem+json")
+                .setBody("problem"),
+        )
+        server.start()
+
+        val response = RemoteJsonClient(RestClient.builder()).postText(
+            server.url("/").toString(),
+            "/status",
+            mapOf("Authorization" to "Bearer secret"),
+            mapOf("request" to true),
+        )
+
+        assertEquals(418, response.statusCode)
+        assertEquals("application/problem+json", response.contentType)
+        assertEquals("problem", response.body)
+        assertEquals("Bearer secret", server.takeRequest().getHeader("Authorization"))
+    }
+
+    @Test
+    fun remoteClientUsesBlockingTypedHttpErrors() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(500).setBody("server error"))
+            server.start()
+
+            assertFailsWith<HttpServerErrorException.InternalServerError> {
+                RemoteJsonClient(RestClient.builder()).get(server.url("/").toString(), "/error", emptyMap())
+            }
+        }
+    }
+
+    @Test
+    fun remoteClientAcceptsTheExactResponseLimit() = MockWebServer().use { server ->
+        val body = ByteArray(MAX_REMOTE_RESPONSE_BYTES) { 1 }
+        server.enqueue(MockResponse().setBody(Buffer().write(body)))
+        server.start()
+
+        assertEquals(
+            body.size,
+            RemoteJsonClient(RestClient.builder()).getBytes(server.url("/").toString(), "/body", emptyMap()).size,
+        )
+    }
+
+    @Test
+    fun remoteClientRejectsOversizedSuccessAndErrorBodies(): Unit = MockWebServer().use { server ->
+        val body = Buffer().write(ByteArray(MAX_REMOTE_RESPONSE_BYTES + 1) { 1 })
+        server.enqueue(MockResponse().setBody(body.clone()))
+        server.enqueue(MockResponse().setResponseCode(500).setBody(body.clone()))
+        server.start()
+        val client = RemoteJsonClient(RestClient.builder())
+
+        assertFailsWith<RemoteResponseTooLargeException> {
+            client.getBytes(server.url("/").toString(), "/success", emptyMap())
+        }
+        assertFailsWith<RemoteResponseTooLargeException> {
+            client.getBytes(server.url("/").toString(), "/error", emptyMap())
+        }
+    }
+
+    @Test
+    fun remoteClientKeepsCredentialsOnTheOriginalRedirectRequest() = MockWebServer().use { target ->
+        MockWebServer().use { source ->
+            target.enqueue(MockResponse().setBody("redirected"))
+            target.start()
+            source.enqueue(MockResponse().setResponseCode(307).setHeader("Location", target.url("/target")))
+            source.start()
+
+            val error = runCatching {
+                RemoteJsonClient(RestClient.builder()).getBytes(
+                    source.url("/").toString(),
+                    "/source",
+                    mapOf("Authorization" to "Bearer secret"),
+                )
+            }.exceptionOrNull()
+
+            assertNotNull(error)
+            assertEquals("Bearer secret", source.takeRequest().getHeader("Authorization"))
+            assertEquals(0, target.requestCount)
+        }
+    }
+
     private fun loaders(): RemoteConnectorLoaders =
-        RemoteJsonClient(WebClient.builder()).let { http ->
+        RemoteJsonClient(RestClient.builder()).let { http ->
             RemoteConnectorLoaders(
                 JiraConnectorLoader(http, mapper),
                 ConfluenceConnectorLoader(http, mapper).also { it.sleepMillis = {} },

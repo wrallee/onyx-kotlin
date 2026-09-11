@@ -4,9 +4,9 @@ current_phase: 3
 current_phase_name: Kotlin embedding과 OpenSearch 적재
 status: planning
 stopped_at: Phase 02 complete, ready to plan Phase 3
-last_updated: "2026-09-10T11:24:00.000Z"
+last_updated: "2026-09-10T16:58:46.000Z"
 last_activity: 2026-09-10
-last_activity_desc: "Completed quick task 260910-rpj: OpenSearch Nori and strict Kotlin mapping"
+last_activity_desc: "Completed quick task 260910-vbb: Replace all Kotlin outbound WebClient usage with blocking RestClient and remove the WebFlux dependency"
 state_head: 09939d6a9fa6b7d9916a49acdb19471bbe8d4db1
 progress:
   total_phases: 5
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-09)
 Phase: 3 — Kotlin embedding과 OpenSearch 적재
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-09-10 — Completed quick task 260910-rpj: OpenSearch Nori and strict Kotlin mapping
+Last activity: 2026-09-10 — Completed quick task 260910-vbb: Replace all Kotlin outbound WebClient usage with blocking RestClient and remove the WebFlux dependency
 
 Progress: [██░░░░░░░░] 20%
 
@@ -98,6 +98,7 @@ Progress: [██░░░░░░░░] 20%
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260910-rpj | OpenSearch Nori startup and strict Kotlin mapping without automatic migration | 2026-09-10 | b4a85db17 | [260910-rpj-configure-the-stock-kotlin-compose-opens](./quick/260910-rpj-configure-the-stock-kotlin-compose-opens/) |
+| 260910-vbb | Replace all Kotlin outbound WebClient usage with blocking RestClient and remove the WebFlux dependency | 2026-09-10 | 8eb846fac | [260910-vbb-replace-all-kotlin-outbound-webclient-us](./quick/260910-vbb-replace-all-kotlin-outbound-webclient-us/) |
 
 ## Deferred Items
 
