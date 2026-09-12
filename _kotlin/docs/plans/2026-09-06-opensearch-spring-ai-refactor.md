@@ -42,41 +42,41 @@ Phase 1 (test fixture improvements in `OpenSearchIndexerTest.kt`) has been compl
 - Strictly omit `com.fasterxml.jackson.module:jackson-module-kotlin` (rely exclusively on `tools.jackson.module:jackson-module-kotlin`).
 
 ### Step 2: Configuration Standardization
-- Create `com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties`:
+- Create `com.onyx.kotlin.opensearch.OpenSearchVectorStoreProperties`:
   - Bind `@ConfigurationProperties("spring.ai.vectorstore.opensearch")`.
   - Fallback to `onyx.opensearch.*` if `spring.ai.vectorstore.opensearch.*` is unset.
   - Properties: `uris`, `indexName`, `username`, `password`, `ssl.verifyCerts`.
 - Update `application.yml` with standard `spring.ai.vectorstore.opensearch.*` keys.
 
 ### Step 3: OpenSearch Client Factory with Jackson 3
-- Create `com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory`:
+- Create `com.onyx.kotlin.opensearch.OpenSearchClientFactory`:
   - Configure `ApacheHttpClient5TransportBuilder` with `org.opensearch.client.json.jackson3.JacksonJsonpMapper(objectMapper)`, accepting `tools.jackson.databind.ObjectMapper`.
   - Set connect timeout (30s) and socket/response timeout (30s).
   - Configure SSL context: bypass certificate verification when `verifyCerts == false`.
   - Configure basic credentials provider if username/password present.
-- Create `com.onyx.foss.kotlin.opensearch.OpenSearchConfiguration`:
+- Create `com.onyx.kotlin.opensearch.OpenSearchConfiguration`:
   - Define beans: `OpenSearchVectorStoreProperties`, `OpenSearchClient` (injecting Spring's Jackson 3 `ObjectMapper`), and `VectorStore`.
 
 ### Step 4: DTO & Spring AI VectorStore
-- Create `com.onyx.foss.kotlin.opensearch.OpenSearchChunkDocument`:
+- Create `com.onyx.kotlin.opensearch.OpenSearchChunkDocument`:
   - Pure Kotlin data class with `@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy::class)`.
   - Helper functions: `toSpringAiDocument(id, score)` and `fromSpringAiDocument(doc)`.
-- Create `com.onyx.foss.kotlin.opensearch.OnyxOpenSearchVectorStore`:
+- Create `com.onyx.kotlin.opensearch.OnyxOpenSearchVectorStore`:
   - Implement `org.springframework.ai.vectorstore.VectorStore`.
   - Implement `similaritySearch` using `opensearch-java:3.10.0`'s `KnnQuery` builder (`field("embedding")`, `vector(floatVector)`, `k(count)`).
   - Translate document filters to OpenSearch query DSL.
 
 ### Step 5: Spring AI RAG Hybrid Search Fusion
-- Create `com.onyx.foss.kotlin.service.HybridFusionJoiner`:
+- Create `com.onyx.kotlin.service.HybridFusionJoiner`:
   - `ScoreNormalizationDocumentJoiner`: Implements `DocumentJoiner` for min-max score normalization.
   - `ReciprocalRankFusionDocumentJoiner`: Implements `DocumentJoiner` for RRF score fusion ($1 / (60 + \text{rank})$).
-- Create `com.onyx.foss.kotlin.service.OpenSearchHybridDocumentRetriever`:
+- Create `com.onyx.kotlin.service.OpenSearchHybridDocumentRetriever`:
   - Implements `DocumentRetriever` combining keyword and vector queries via Spring AI Joiner.
 - Update `SearchService.kt`:
   - Delegate hybrid fusion to `ReciprocalRankFusionDocumentJoiner`.
 
 ### Step 6: OpenSearchIndexer DSL Implementation
-- Migrate `com.onyx.foss.kotlin.ingestion.OpenSearchIndexer`:
+- Migrate `com.onyx.kotlin.ingestion.OpenSearchIndexer`:
   - Remove all `WebClient` fields and references.
   - Provide secondary constructor matching test harness `(OnyxProperties, Any?, ObjectMapper, PairExternalWriteFence)` for backwards compatibility.
   - Implement CUD operations via `OpenSearchClient` typed DSL:
@@ -97,11 +97,11 @@ Phase 1 (test fixture improvements in `OpenSearchIndexerTest.kt`) has been compl
 
 ### Automated Tests
 1. **Unit Tests**:
-   - `./gradlew test --tests "com.onyx.foss.kotlin.ingestion.OpenSearchIndexerTest"` (14 MockWebServer tests verifying CUD, search, mapping, migration retries).
+   - `./gradlew test --tests "com.onyx.kotlin.ingestion.OpenSearchIndexerTest"` (14 MockWebServer tests verifying CUD, search, mapping, migration retries).
 2. **Search Service Tests**:
-   - `./gradlew test --tests "com.onyx.foss.kotlin.service.SearchServiceTest"` (Hybrid search and RRF fusion).
+   - `./gradlew test --tests "com.onyx.kotlin.service.SearchServiceTest"` (Hybrid search and RRF fusion).
 3. **MCP Tool Tests**:
-   - `./gradlew test --tests "com.onyx.foss.kotlin.mcp.McpSearchToolTest"`.
+   - `./gradlew test --tests "com.onyx.kotlin.mcp.McpSearchToolTest"`.
 4. **Integration Tests**:
    - `./gradlew opensearchIntegrationTest` (runs `OpenSearchIndexerIntegrationTest` against real OpenSearch container).
 5. **Full Suite**:
