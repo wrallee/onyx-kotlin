@@ -1,9 +1,10 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.opensearch
 
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.SerializationFeature
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.config.SearchProperties
+import com.onyx.foss.kotlin.search.SearchCandidate
 import com.onyx.foss.kotlin.opensearch.HybridNormalizationPipelineRegistry
 import com.onyx.foss.kotlin.opensearch.MinMaxNormalizationPipeline
 import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory

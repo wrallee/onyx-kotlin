@@ -2,6 +2,7 @@ package com.onyx.foss.kotlin.ingestion
 
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
 import com.onyx.foss.kotlin.ingestion.IngestionEnumerationRepository
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
 import org.springframework.stereotype.Service
 
 @Service

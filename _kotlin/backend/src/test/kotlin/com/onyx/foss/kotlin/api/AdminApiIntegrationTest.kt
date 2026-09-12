@@ -18,7 +18,7 @@ import com.onyx.foss.kotlin.ingestion.IngestionJobRepository
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentEntity
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
 import com.onyx.foss.kotlin.ingestion.JobState
-import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.foss.kotlin.service.AdminService
 import com.onyx.foss.kotlin.service.FileStorageService
 import com.onyx.foss.kotlin.support.H2IntegrationTest

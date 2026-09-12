@@ -1,4 +1,4 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.model
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.config.OnyxProperties

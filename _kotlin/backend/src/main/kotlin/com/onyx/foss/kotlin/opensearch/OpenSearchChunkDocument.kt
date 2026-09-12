@@ -52,12 +52,12 @@ data class OpenSearchChunkDocument(
         return builder.build()
     }
 
-    fun toSearchCandidate(id: String, score: Double, mapper: tools.jackson.databind.ObjectMapper? = null): com.onyx.foss.kotlin.ingestion.SearchCandidate {
+    fun toSearchCandidate(id: String, score: Double, mapper: tools.jackson.databind.ObjectMapper? = null): com.onyx.foss.kotlin.search.SearchCandidate {
         val metaNode = when (val raw = metadata) {
             null -> mapper?.createObjectNode() ?: tools.jackson.databind.node.JsonNodeFactory.instance.objectNode()
             else -> mapper?.valueToTree(raw) ?: tools.jackson.databind.node.JsonNodeFactory.instance.objectNode()
         }
-        return com.onyx.foss.kotlin.ingestion.SearchCandidate(
+        return com.onyx.foss.kotlin.search.SearchCandidate(
             id = id,
             ccPairId = ccPairId,
             sourceDocumentId = sourceDocumentId ?: "",

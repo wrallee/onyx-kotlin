@@ -1,5 +1,7 @@
 package com.onyx.foss.kotlin.ingestion
 
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
+
 import tools.jackson.databind.ObjectMapper
 import com.onyx.foss.kotlin.connector.ConnectorCredentialPairEntity
 import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository

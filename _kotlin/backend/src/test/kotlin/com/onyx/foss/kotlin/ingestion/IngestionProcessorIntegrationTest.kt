@@ -21,6 +21,8 @@ import com.onyx.foss.kotlin.documentset.DocumentSetEntity
 import com.onyx.foss.kotlin.documentset.DocumentSetPairEntity
 import com.onyx.foss.kotlin.documentset.DocumentSetPairRepository
 import com.onyx.foss.kotlin.documentset.DocumentSetRepository
+import com.onyx.foss.kotlin.model.ModelServerClient
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.foss.kotlin.ingestion.IngestionAttemptEntity
 import com.onyx.foss.kotlin.ingestion.IngestionAttemptRepository
 import com.onyx.foss.kotlin.ingestion.IngestionCheckpointRepository

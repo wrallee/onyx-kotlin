@@ -7,6 +7,7 @@ import com.onyx.foss.kotlin.documentset.DocumentSetSyncClaimLockRepository
 import com.onyx.foss.kotlin.documentset.DocumentSetSyncOutboxRepository
 import com.onyx.foss.kotlin.documentset.DocumentSetSyncStatus
 import com.onyx.foss.kotlin.documentset.DocumentSetRepository
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.scheduling.annotation.Scheduled

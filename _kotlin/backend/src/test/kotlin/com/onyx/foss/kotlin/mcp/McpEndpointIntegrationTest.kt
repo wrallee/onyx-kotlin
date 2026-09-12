@@ -1,8 +1,8 @@
 package com.onyx.foss.kotlin.mcp
 
 import tools.jackson.databind.ObjectMapper
-import com.onyx.foss.kotlin.service.SearchResponse
-import com.onyx.foss.kotlin.service.SearchService
+import com.onyx.foss.kotlin.search.SearchResponse
+import com.onyx.foss.kotlin.search.SearchService
 import io.modelcontextprotocol.client.McpClient
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper
@@ -69,7 +69,7 @@ class McpEndpointIntegrationTest {
             assertThat(result.isError() == true).isFalse()
         }
 
-        verify(search).search("deployment guide", listOf("Engineering"), 5, com.onyx.foss.kotlin.service.SearchType.HYBRID)
+        verify(search).search("deployment guide", listOf("Engineering"), 5, com.onyx.foss.kotlin.search.SearchType.HYBRID)
     }
 
     @Test

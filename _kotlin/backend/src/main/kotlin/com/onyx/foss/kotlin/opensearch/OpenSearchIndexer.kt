@@ -1,8 +1,9 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.opensearch
 
 import com.onyx.foss.kotlin.config.OnyxProperties
 import com.onyx.foss.kotlin.config.SearchProperties
 import com.onyx.foss.kotlin.connector.ConnectorSource
+import com.onyx.foss.kotlin.search.SearchCandidate
 import com.onyx.foss.kotlin.opensearch.HybridNormalizationPipelineRegistry
 import com.onyx.foss.kotlin.opensearch.OpenSearchChunkDocument
 import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
 import java.nio.charset.StandardCharsets
+import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
@@ -578,3 +580,7 @@ class OpenSearchIndexer(
         ),
     )
 }
+
+internal val DOCUMENT_SET_UPDATE_TIMEOUT: Duration = Duration.ofSeconds(30)
+internal val OPENSEARCH_TIMEOUT: Duration = Duration.ofSeconds(30)
+internal val OPENSEARCH_MIGRATION_TIMEOUT: Duration = Duration.ofMinutes(10)

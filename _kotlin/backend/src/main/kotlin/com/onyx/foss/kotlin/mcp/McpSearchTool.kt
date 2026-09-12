@@ -3,9 +3,9 @@ package com.onyx.foss.kotlin.mcp
 import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
 import com.onyx.foss.kotlin.connector.ConnectorSource
-import com.onyx.foss.kotlin.service.SearchResponse
-import com.onyx.foss.kotlin.service.SearchService
-import com.onyx.foss.kotlin.service.SearchType
+import com.onyx.foss.kotlin.search.SearchResponse
+import com.onyx.foss.kotlin.search.SearchService
+import com.onyx.foss.kotlin.search.SearchType
 import io.modelcontextprotocol.spec.McpSchema
 import org.springframework.stereotype.Component
 import java.math.BigDecimal

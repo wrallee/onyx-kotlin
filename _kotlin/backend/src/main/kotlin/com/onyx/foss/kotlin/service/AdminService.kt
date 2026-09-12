@@ -36,8 +36,8 @@ import com.onyx.foss.kotlin.ingestion.IngestionJobEntity
 import com.onyx.foss.kotlin.ingestion.IngestionJobRepository
 import com.onyx.foss.kotlin.ingestion.JobState
 import com.onyx.foss.kotlin.connector.PairStatus
-import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
-import com.onyx.foss.kotlin.ingestion.PairExternalWriteFence
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
+import com.onyx.foss.kotlin.opensearch.PairExternalWriteFence
 import com.onyx.foss.kotlin.security.CredentialCipher
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service

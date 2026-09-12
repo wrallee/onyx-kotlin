@@ -1,4 +1,4 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.opensearch
 
 import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository
 import com.onyx.foss.kotlin.opensearch.OpenSearchIndexMigrationLockRepository
