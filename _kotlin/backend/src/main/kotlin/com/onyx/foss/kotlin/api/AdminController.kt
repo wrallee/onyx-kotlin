@@ -2,8 +2,8 @@ package com.onyx.foss.kotlin.api
 
 import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
-import com.onyx.foss.kotlin.domain.ConnectorSource
-import com.onyx.foss.kotlin.domain.PairStatus
+import com.onyx.foss.kotlin.connector.ConnectorSource
+import com.onyx.foss.kotlin.connector.PairStatus
 import com.onyx.foss.kotlin.service.AdminService
 import com.onyx.foss.kotlin.service.FileStorageService
 import com.onyx.foss.kotlin.service.IngestionQueryService

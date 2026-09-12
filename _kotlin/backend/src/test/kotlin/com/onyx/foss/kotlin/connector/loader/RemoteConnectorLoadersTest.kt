@@ -1,9 +1,9 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.connector.loader
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.config.MAX_REMOTE_RESPONSE_BYTES
 import com.onyx.foss.kotlin.config.RemoteResponseTooLargeException
-import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.connector.ConnectorSource
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.Dispatcher

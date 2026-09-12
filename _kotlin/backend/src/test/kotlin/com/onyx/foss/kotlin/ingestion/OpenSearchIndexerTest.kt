@@ -9,7 +9,7 @@ import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory
 import com.onyx.foss.kotlin.opensearch.OpenSearchVectorStoreProperties
 import com.onyx.foss.kotlin.opensearch.ZScoreNormalizationPipeline
 import org.opensearch.client.opensearch.OpenSearchClient
-import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.connector.ConnectorSource
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest

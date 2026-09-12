@@ -1,7 +1,7 @@
 package com.onyx.foss.kotlin.ingestion
 
-import com.onyx.foss.kotlin.domain.ConnectorCredentialPairRepository
-import com.onyx.foss.kotlin.domain.OpenSearchIndexMigrationLockRepository
+import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexMigrationLockRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 

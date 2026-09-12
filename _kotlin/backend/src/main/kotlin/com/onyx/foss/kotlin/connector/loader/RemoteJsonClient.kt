@@ -1,4 +1,4 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.connector.loader
 
 import tools.jackson.databind.JsonNode
 import com.onyx.foss.kotlin.config.withBoundedJdkTransport

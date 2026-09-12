@@ -1,9 +1,9 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.connector.loader
 
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.node.ObjectNode
 import tools.jackson.module.kotlin.jacksonObjectMapper
-import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.connector.ConnectorSource
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer

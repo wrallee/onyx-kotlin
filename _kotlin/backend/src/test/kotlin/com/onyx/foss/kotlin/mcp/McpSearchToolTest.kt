@@ -2,7 +2,7 @@ package com.onyx.foss.kotlin.mcp
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.config.SearchProperties
-import com.onyx.foss.kotlin.domain.DocumentSetRepository
+import com.onyx.foss.kotlin.documentset.DocumentSetRepository
 import com.onyx.foss.kotlin.ingestion.ModelServerClient
 import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
 import com.onyx.foss.kotlin.service.DocumentContextResponse

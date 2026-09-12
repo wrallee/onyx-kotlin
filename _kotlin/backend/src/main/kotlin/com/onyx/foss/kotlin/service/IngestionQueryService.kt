@@ -1,7 +1,7 @@
 package com.onyx.foss.kotlin.service
 
-import com.onyx.foss.kotlin.domain.IngestionAttemptRepository
-import com.onyx.foss.kotlin.domain.IngestionErrorRepository
+import com.onyx.foss.kotlin.ingestion.IngestionAttemptRepository
+import com.onyx.foss.kotlin.ingestion.IngestionErrorRepository
 import org.springframework.stereotype.Service
 
 @Service

@@ -1,4 +1,4 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.connector.loader
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test

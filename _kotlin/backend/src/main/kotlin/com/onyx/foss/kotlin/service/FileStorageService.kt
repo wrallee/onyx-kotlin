@@ -5,9 +5,9 @@ import tools.jackson.databind.node.ArrayNode
 import tools.jackson.databind.node.ObjectNode
 import com.onyx.foss.kotlin.api.ApiException
 import com.onyx.foss.kotlin.config.OnyxProperties
-import com.onyx.foss.kotlin.domain.ConnectorSource
-import com.onyx.foss.kotlin.domain.FileAssetEntity
-import com.onyx.foss.kotlin.domain.FileAssetRepository
+import com.onyx.foss.kotlin.connector.ConnectorSource
+import com.onyx.foss.kotlin.connector.FileAssetEntity
+import com.onyx.foss.kotlin.connector.FileAssetRepository
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional

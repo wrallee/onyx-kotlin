@@ -1,10 +1,10 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.connector.loader
 
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.databind.node.ObjectNode
-import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.connector.ConnectorSource
 import org.springframework.core.codec.DecodingException
 import org.springframework.http.HttpHeaders
 import org.springframework.stereotype.Service

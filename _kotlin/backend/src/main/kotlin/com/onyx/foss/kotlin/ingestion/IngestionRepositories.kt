@@ -1,6 +1,5 @@
-package com.onyx.foss.kotlin.domain
+package com.onyx.foss.kotlin.ingestion
 
-import tools.jackson.databind.JsonNode
 import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
@@ -13,140 +12,7 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 import java.util.UUID
 
-interface CredentialRepository : JpaRepository<CredentialEntity, Long> {
-    fun findAllBySource(source: ConnectorSource): List<CredentialEntity>
-}
-
-interface ConnectorRepository : JpaRepository<ConnectorEntity, Long> {
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT connector FROM ConnectorEntity connector WHERE connector.id = :id")
-    fun lockById(@Param("id") id: Long): ConnectorEntity?
-}
-
-interface ConnectorCredentialPairRepository : JpaRepository<ConnectorCredentialPairEntity, Long> {
-    fun findAllByConnectorId(connectorId: Long): List<ConnectorCredentialPairEntity>
-    fun findAllByCredentialId(credentialId: Long): List<ConnectorCredentialPairEntity>
-    fun findByConnectorIdAndCredentialId(connectorId: Long, credentialId: Long): ConnectorCredentialPairEntity?
-
-    @Query("SELECT pair.connectorId FROM ConnectorCredentialPairEntity pair WHERE pair.id = :id")
-    fun findConnectorIdById(@Param("id") id: Long): Long?
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT pair FROM ConnectorCredentialPairEntity pair WHERE pair.id = :id")
-    fun lockById(@Param("id") id: Long): ConnectorCredentialPairEntity?
-
-    @Query(
-        """
-            SELECT pair FROM ConnectorCredentialPairEntity pair
-            WHERE pair.status IN :statuses
-              AND NOT EXISTS (
-                  SELECT job.id FROM IngestionJobEntity job
-                  WHERE job.ccPairId = pair.id AND job.state IN :activeStates
-              )
-        """,
-    )
-    fun findSchedulable(
-        @Param("statuses") statuses: Collection<PairStatus>,
-        @Param("activeStates") activeStates: Collection<JobState>,
-    ): List<ConnectorCredentialPairEntity>
-}
-
-interface DocumentSetRepository : JpaRepository<DocumentSetEntity, Long> {
-    fun existsByName(name: String): Boolean
-    fun existsByNameAndIdNot(name: String, id: Long): Boolean
-    fun findAllByNameIn(names: Collection<String>): List<DocumentSetEntity>
-
-    @Query(
-        """
-            SELECT documentSet.name
-            FROM DocumentSetEntity documentSet, DocumentSetPairEntity membership
-            WHERE membership.documentSetId = documentSet.id
-              AND membership.ccPairId = :ccPairId
-            ORDER BY documentSet.name
-        """,
-    )
-    fun findNamesByCcPairId(@Param("ccPairId") ccPairId: Long): List<String>
-}
-
-interface DocumentSetPairRepository : JpaRepository<DocumentSetPairEntity, DocumentSetPairId> {
-    fun findAllByDocumentSetIdOrderByCcPairId(documentSetId: Long): List<DocumentSetPairEntity>
-    fun deleteAllByDocumentSetId(documentSetId: Long)
-    fun deleteAllByCcPairId(ccPairId: Long)
-}
-
-interface DocumentSetSyncOutboxRepository : JpaRepository<DocumentSetSyncOutboxEntity, Long> {
-    fun findAllByStatusIn(statuses: Collection<DocumentSetSyncStatus>): List<DocumentSetSyncOutboxEntity>
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    fun findFirstByStatusOrderById(status: DocumentSetSyncStatus): DocumentSetSyncOutboxEntity?
-
-    @Transactional
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(
-        """
-            UPDATE DocumentSetSyncOutboxEntity row
-            SET row.lockedAt = :now
-            WHERE row.id = :id
-              AND row.claimToken = :token
-              AND row.status = com.onyx.foss.kotlin.domain.DocumentSetSyncStatus.IN_PROGRESS
-        """,
-    )
-    fun renewOwned(
-        @Param("id") id: Long,
-        @Param("token") token: UUID,
-        @Param("now") now: Instant,
-    ): Int
-
-    @Transactional
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(
-        """
-            UPDATE DocumentSetSyncOutboxEntity row
-            SET row.status = com.onyx.foss.kotlin.domain.DocumentSetSyncStatus.DONE,
-                row.claimToken = NULL,
-                row.lockedAt = NULL,
-                row.lastError = NULL
-            WHERE row.id = :id
-              AND row.claimToken = :token
-              AND row.status = com.onyx.foss.kotlin.domain.DocumentSetSyncStatus.IN_PROGRESS
-        """,
-    )
-    fun completeOwned(@Param("id") id: Long, @Param("token") token: UUID): Int
-
-    @Transactional
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(
-        """
-            UPDATE DocumentSetSyncOutboxEntity row
-            SET row.status = com.onyx.foss.kotlin.domain.DocumentSetSyncStatus.PENDING,
-                row.claimToken = NULL,
-                row.lockedAt = NULL,
-                row.lastError = :message
-            WHERE row.id = :id
-              AND row.claimToken = :token
-              AND row.status = com.onyx.foss.kotlin.domain.DocumentSetSyncStatus.IN_PROGRESS
-        """,
-    )
-    fun retryOwned(
-        @Param("id") id: Long,
-        @Param("token") token: UUID,
-        @Param("message") message: String,
-    ): Int
-}
-
-interface DocumentSetSyncClaimLockRepository : JpaRepository<DocumentSetSyncClaimLockEntity, Short> {
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT lock FROM DocumentSetSyncClaimLockEntity lock WHERE lock.id = 1")
-    fun lock(): DocumentSetSyncClaimLockEntity
-}
-
-interface OpenSearchIndexMigrationLockRepository : JpaRepository<OpenSearchIndexMigrationLockEntity, Short> {
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT lock FROM OpenSearchIndexMigrationLockEntity lock WHERE lock.id = 1")
-    fun lock(): OpenSearchIndexMigrationLockEntity
-}
-
-interface FileAssetRepository : JpaRepository<FileAssetEntity, String>
+import com.onyx.foss.kotlin.connector.ConnectorCredentialPairEntity
 
 interface IngestionAttemptRepository : JpaRepository<IngestionAttemptEntity, Long> {
     fun findAllByCcPairIdOrderByIdDesc(ccPairId: Long): List<IngestionAttemptEntity>
@@ -171,11 +37,11 @@ interface IngestionJobRepository : JpaRepository<IngestionJobEntity, Long> {
             SELECT job.id
             FROM IngestionJobEntity job, ConnectorCredentialPairEntity pair
             WHERE pair.id = job.ccPairId
-              AND pair.status <> com.onyx.foss.kotlin.domain.PairStatus.DELETING
+              AND pair.status <> com.onyx.foss.kotlin.connector.PairStatus.DELETING
               AND (pair.ingestionLeaseExpiresAt IS NULL OR pair.ingestionLeaseExpiresAt < :now)
               AND (
-                  (job.state = com.onyx.foss.kotlin.domain.JobState.QUEUED AND job.runAfter <= :now)
-                  OR (job.state = com.onyx.foss.kotlin.domain.JobState.RUNNING
+                  (job.state = com.onyx.foss.kotlin.ingestion.JobState.QUEUED AND job.runAfter <= :now)
+                  OR (job.state = com.onyx.foss.kotlin.ingestion.JobState.RUNNING
                       AND (job.leaseExpiresAt IS NULL OR job.leaseExpiresAt < :now))
               )
             ORDER BY job.runAfter, job.id
@@ -188,7 +54,7 @@ interface IngestionJobRepository : JpaRepository<IngestionJobEntity, Long> {
     @Query(
         """
             UPDATE IngestionJobEntity job
-            SET job.state = com.onyx.foss.kotlin.domain.JobState.RUNNING,
+            SET job.state = com.onyx.foss.kotlin.ingestion.JobState.RUNNING,
                 job.lockedAt = :now,
                 job.lockedBy = :worker,
                 job.attempts = job.attempts + 1,
@@ -196,8 +62,8 @@ interface IngestionJobRepository : JpaRepository<IngestionJobEntity, Long> {
                 job.leaseExpiresAt = :leaseExpiresAt
             WHERE job.id = :id
               AND (
-                  (job.state = com.onyx.foss.kotlin.domain.JobState.QUEUED AND job.runAfter <= :now)
-                  OR (job.state = com.onyx.foss.kotlin.domain.JobState.RUNNING
+                  (job.state = com.onyx.foss.kotlin.ingestion.JobState.QUEUED AND job.runAfter <= :now)
+                  OR (job.state = com.onyx.foss.kotlin.ingestion.JobState.RUNNING
                       AND (job.leaseExpiresAt IS NULL OR job.leaseExpiresAt < :now))
               )
         """,

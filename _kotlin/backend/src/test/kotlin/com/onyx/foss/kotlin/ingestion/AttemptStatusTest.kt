@@ -1,4 +1,4 @@
-package com.onyx.foss.kotlin.domain
+package com.onyx.foss.kotlin.ingestion
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import org.assertj.core.api.Assertions.assertThat

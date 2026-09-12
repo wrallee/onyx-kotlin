@@ -2,8 +2,8 @@ package com.onyx.foss.kotlin.api
 
 import com.fasterxml.jackson.annotation.JsonAlias
 import tools.jackson.databind.JsonNode
-import com.onyx.foss.kotlin.domain.ConnectorSource
-import com.onyx.foss.kotlin.domain.PairStatus
+import com.onyx.foss.kotlin.connector.ConnectorSource
+import com.onyx.foss.kotlin.connector.PairStatus
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotEmpty
 import java.time.Instant

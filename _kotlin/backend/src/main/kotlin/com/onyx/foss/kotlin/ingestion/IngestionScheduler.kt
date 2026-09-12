@@ -1,11 +1,11 @@
 package com.onyx.foss.kotlin.ingestion
 
 import com.onyx.foss.kotlin.config.OnyxProperties
-import com.onyx.foss.kotlin.domain.ConnectorCredentialPairRepository
-import com.onyx.foss.kotlin.domain.ConnectorRepository
-import com.onyx.foss.kotlin.domain.IngestionAttemptRepository
-import com.onyx.foss.kotlin.domain.JobState
-import com.onyx.foss.kotlin.domain.PairStatus
+import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository
+import com.onyx.foss.kotlin.connector.ConnectorRepository
+import com.onyx.foss.kotlin.ingestion.IngestionAttemptRepository
+import com.onyx.foss.kotlin.ingestion.JobState
+import com.onyx.foss.kotlin.connector.PairStatus
 import com.onyx.foss.kotlin.service.AdminService
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component

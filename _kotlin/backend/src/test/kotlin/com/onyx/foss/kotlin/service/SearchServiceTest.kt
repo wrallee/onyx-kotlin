@@ -1,8 +1,8 @@
 package com.onyx.foss.kotlin.service
 
 import com.onyx.foss.kotlin.config.SearchProperties
-import com.onyx.foss.kotlin.domain.DocumentSetEntity
-import com.onyx.foss.kotlin.domain.DocumentSetRepository
+import com.onyx.foss.kotlin.documentset.DocumentSetEntity
+import com.onyx.foss.kotlin.documentset.DocumentSetRepository
 import com.onyx.foss.kotlin.ingestion.ModelServerClient
 import com.onyx.foss.kotlin.ingestion.OpenSearchIndexer
 import com.onyx.foss.kotlin.ingestion.SearchCandidate

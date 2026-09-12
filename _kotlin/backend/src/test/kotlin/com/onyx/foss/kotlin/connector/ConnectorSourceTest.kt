@@ -1,4 +1,4 @@
-package com.onyx.foss.kotlin.domain
+package com.onyx.foss.kotlin.connector
 
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals

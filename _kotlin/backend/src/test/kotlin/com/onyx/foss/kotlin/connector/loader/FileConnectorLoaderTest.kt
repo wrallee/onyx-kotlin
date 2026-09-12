@@ -1,7 +1,7 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.connector.loader
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
-import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.connector.ConnectorSource
 import com.onyx.foss.kotlin.service.FileStorageService
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir

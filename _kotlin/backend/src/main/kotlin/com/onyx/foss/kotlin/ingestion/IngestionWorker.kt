@@ -4,23 +4,29 @@ import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import com.onyx.foss.kotlin.config.OnyxProperties
 import com.onyx.foss.kotlin.config.buildModelServerClient
-import com.onyx.foss.kotlin.domain.AttemptStatus
-import com.onyx.foss.kotlin.domain.ConnectorCredentialPairRepository
-import com.onyx.foss.kotlin.domain.ConnectorSource
-import com.onyx.foss.kotlin.domain.DocumentSetRepository
-import com.onyx.foss.kotlin.domain.IndexedDocumentEntity
-import com.onyx.foss.kotlin.domain.IndexedDocumentRepository
-import com.onyx.foss.kotlin.domain.IngestionAttemptEntity
-import com.onyx.foss.kotlin.domain.IngestionAttemptRepository
-import com.onyx.foss.kotlin.domain.IngestionCheckpointEntity
-import com.onyx.foss.kotlin.domain.IngestionCheckpointRepository
-import com.onyx.foss.kotlin.domain.IngestionErrorEntity
-import com.onyx.foss.kotlin.domain.IngestionErrorRepository
-import com.onyx.foss.kotlin.domain.IngestionEnumerationRepository
-import com.onyx.foss.kotlin.domain.IngestionJobEntity
-import com.onyx.foss.kotlin.domain.IngestionJobRepository
-import com.onyx.foss.kotlin.domain.JobState
-import com.onyx.foss.kotlin.domain.PairStatus
+import com.onyx.foss.kotlin.ingestion.AttemptStatus
+import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository
+import com.onyx.foss.kotlin.connector.ConnectorSource
+import com.onyx.foss.kotlin.connector.loader.ConnectorBatch
+import com.onyx.foss.kotlin.connector.loader.ConnectorFailure
+import com.onyx.foss.kotlin.connector.loader.FailureTarget
+import com.onyx.foss.kotlin.connector.loader.FileConnectorLoader
+import com.onyx.foss.kotlin.connector.loader.RemoteConnectorLoaders
+import com.onyx.foss.kotlin.connector.loader.SourceDocument
+import com.onyx.foss.kotlin.documentset.DocumentSetRepository
+import com.onyx.foss.kotlin.ingestion.IndexedDocumentEntity
+import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
+import com.onyx.foss.kotlin.ingestion.IngestionAttemptEntity
+import com.onyx.foss.kotlin.ingestion.IngestionAttemptRepository
+import com.onyx.foss.kotlin.ingestion.IngestionCheckpointEntity
+import com.onyx.foss.kotlin.ingestion.IngestionCheckpointRepository
+import com.onyx.foss.kotlin.ingestion.IngestionErrorEntity
+import com.onyx.foss.kotlin.ingestion.IngestionErrorRepository
+import com.onyx.foss.kotlin.ingestion.IngestionEnumerationRepository
+import com.onyx.foss.kotlin.ingestion.IngestionJobEntity
+import com.onyx.foss.kotlin.ingestion.IngestionJobRepository
+import com.onyx.foss.kotlin.ingestion.JobState
+import com.onyx.foss.kotlin.connector.PairStatus
 import com.onyx.foss.kotlin.service.AdminService
 import org.springframework.data.domain.PageRequest
 import org.springframework.http.MediaType
@@ -201,7 +207,7 @@ class JobClaimService(
         job.leaseExpiresAt = null
     }
 
-    private fun releasePair(pair: com.onyx.foss.kotlin.domain.ConnectorCredentialPairEntity) {
+    private fun releasePair(pair: com.onyx.foss.kotlin.connector.ConnectorCredentialPairEntity) {
         pair.ingestionClaimToken = null
         pair.ingestionLeaseExpiresAt = null
     }
@@ -220,7 +226,7 @@ data class IngestionClaim(
 
 private data class IngestionOwnership(
     val job: IngestionJobEntity,
-    val pair: com.onyx.foss.kotlin.domain.ConnectorCredentialPairEntity,
+    val pair: com.onyx.foss.kotlin.connector.ConnectorCredentialPairEntity,
 )
 
 @Service

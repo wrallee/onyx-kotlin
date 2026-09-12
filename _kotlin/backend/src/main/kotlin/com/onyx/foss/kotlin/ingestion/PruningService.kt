@@ -1,7 +1,7 @@
 package com.onyx.foss.kotlin.ingestion
 
-import com.onyx.foss.kotlin.domain.IndexedDocumentRepository
-import com.onyx.foss.kotlin.domain.IngestionEnumerationRepository
+import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
+import com.onyx.foss.kotlin.ingestion.IngestionEnumerationRepository
 import org.springframework.stereotype.Service
 
 @Service

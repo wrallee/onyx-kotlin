@@ -2,7 +2,7 @@ package com.onyx.foss.kotlin.mcp
 
 import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
-import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.connector.ConnectorSource
 import com.onyx.foss.kotlin.service.SearchResponse
 import com.onyx.foss.kotlin.service.SearchService
 import com.onyx.foss.kotlin.service.SearchType

@@ -2,12 +2,12 @@ package com.onyx.foss.kotlin.ingestion
 
 import tools.jackson.databind.JsonNode
 import com.onyx.foss.kotlin.config.OnyxProperties
-import com.onyx.foss.kotlin.domain.DocumentSetSyncOutboxEntity
-import com.onyx.foss.kotlin.domain.DocumentSetSyncClaimLockRepository
-import com.onyx.foss.kotlin.domain.DocumentSetSyncOutboxRepository
-import com.onyx.foss.kotlin.domain.DocumentSetSyncStatus
-import com.onyx.foss.kotlin.domain.DocumentSetRepository
-import com.onyx.foss.kotlin.domain.IndexedDocumentRepository
+import com.onyx.foss.kotlin.documentset.DocumentSetSyncOutboxEntity
+import com.onyx.foss.kotlin.documentset.DocumentSetSyncClaimLockRepository
+import com.onyx.foss.kotlin.documentset.DocumentSetSyncOutboxRepository
+import com.onyx.foss.kotlin.documentset.DocumentSetSyncStatus
+import com.onyx.foss.kotlin.documentset.DocumentSetRepository
+import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component

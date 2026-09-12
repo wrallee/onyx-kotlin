@@ -1,9 +1,9 @@
 package com.onyx.foss.kotlin.ingestion
 
-import com.onyx.foss.kotlin.domain.ConnectorCredentialPairEntity
-import com.onyx.foss.kotlin.domain.ConnectorCredentialPairRepository
-import com.onyx.foss.kotlin.domain.OpenSearchIndexMigrationLockEntity
-import com.onyx.foss.kotlin.domain.OpenSearchIndexMigrationLockRepository
+import com.onyx.foss.kotlin.connector.ConnectorCredentialPairEntity
+import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexMigrationLockEntity
+import com.onyx.foss.kotlin.opensearch.OpenSearchIndexMigrationLockRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows

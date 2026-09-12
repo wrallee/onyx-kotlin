@@ -2,7 +2,7 @@ package com.onyx.foss.kotlin.ingestion
 
 import com.onyx.foss.kotlin.config.OnyxProperties
 import com.onyx.foss.kotlin.config.SearchProperties
-import com.onyx.foss.kotlin.domain.ConnectorSource
+import com.onyx.foss.kotlin.connector.ConnectorSource
 import com.onyx.foss.kotlin.opensearch.HybridNormalizationPipelineRegistry
 import com.onyx.foss.kotlin.opensearch.OpenSearchChunkDocument
 import com.onyx.foss.kotlin.opensearch.OpenSearchClientFactory

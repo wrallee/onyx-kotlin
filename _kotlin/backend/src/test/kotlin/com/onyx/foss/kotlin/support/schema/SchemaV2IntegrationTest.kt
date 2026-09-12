@@ -1,4 +1,4 @@
-package com.onyx.foss.kotlin.domain
+package com.onyx.foss.kotlin.support.schema
 
 import com.onyx.foss.kotlin.support.H2IntegrationTest
 import org.junit.jupiter.api.Test
