@@ -89,6 +89,11 @@ class IngestionProcessor(
             var completeEnumeration = false
             var enumerationSafe = true
             val attemptId = requireNotNull(attempt.id)
+            val unresolvedAttemptErrorsAtStart = if (attempt.fromBeginning) {
+                errors.findAllByAttemptIdOrderByIdDesc(attemptId).filterNot { it.isResolved }
+            } else {
+                emptyList()
+            }
             val batchIterator = batches.iterator()
             while (true) {
                 stopIfStopped(claim)
@@ -202,7 +207,14 @@ class IngestionProcessor(
                 completeEnumeration,
                 beforeDelete = { renew(claim) },
             )
-            if (!hasFailures) {
+            if (attempt.fromBeginning && completeEnumeration) {
+                val errorsToResolve = (
+                    errors.findPriorUnresolvedByCcPairId(requireNotNull(pair.id), attemptId) +
+                        unresolvedAttemptErrorsAtStart
+                )
+                    .onEach { it.isResolved = true }
+                errors.saveAll(errorsToResolve)
+            } else if (!hasFailures) {
                 val resolvedEntityErrors = errors.findUnresolvedEntityErrorsByCcPairId(requireNotNull(pair.id))
                     .onEach { it.isResolved = true }
                 errors.saveAll(resolvedEntityErrors)

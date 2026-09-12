@@ -128,6 +128,21 @@ interface IngestionErrorRepository : JpaRepository<IngestionErrorEntity, Long> {
         """,
     )
     fun findUnresolvedEntityErrorsByCcPairId(@Param("ccPairId") ccPairId: Long): List<IngestionErrorEntity>
+
+    @Query(
+        """
+            SELECT error FROM IngestionErrorEntity error, IngestionAttemptEntity attempt
+            WHERE error.attemptId = attempt.id
+              AND attempt.ccPairId = :ccPairId
+              AND error.attemptId <> :attemptId
+              AND error.isResolved = false
+            ORDER BY error.id DESC
+        """,
+    )
+    fun findPriorUnresolvedByCcPairId(
+        @Param("ccPairId") ccPairId: Long,
+        @Param("attemptId") attemptId: Long,
+    ): List<IngestionErrorEntity>
 }
 
 

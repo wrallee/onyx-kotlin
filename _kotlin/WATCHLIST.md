@@ -1,15 +1,11 @@
 # WATCHLIST.md
 
-schema_version: 1
-automation: none
+schema_version: 2
 timezone: Asia/Seoul
-archive_policy: manual
-
-This file records deferred checks. It does not schedule work.
 
 ## Open
 
-### WL-20260901-001 — 첨부파일과 이미지 벡터화 확인
+### WL-20260901-001 - 첨부파일과 이미지 벡터화 확인
 - status: open
 - priority: P1
 - owner: both
@@ -19,11 +15,9 @@ This file records deferred checks. It does not schedule work.
 - trigger: 텍스트 수집만 복원하면 첨부파일 처리와 이미지 벡터화가 누락될 수 있다.
 - action: File·Confluence 수집과 indexing 구현에서 첨부파일 추출, 이미지 처리, 벡터화를 다시 확인한다.
 - done_when: 첨부파일과 이미지 벡터화의 Python 대응 시나리오가 parity matrix와 Kotlin 테스트에 반영된다.
-- last_checked_at:
-- result:
 - next_step_on_fail: 누락 시 해당 Python 시나리오를 실패 테스트로 추가하고 구현 계획에 반영한다.
 
-### WL-20260901-002 — OpenSearch 인증서 검증 환경변수 복구
+### WL-20260901-002 - OpenSearch 인증서 검증 환경변수 복구
 - status: open
 - priority: P1
 - owner: both
@@ -33,11 +27,9 @@ This file records deferred checks. It does not schedule work.
 - trigger: Kotlin 백엔드의 OpenSearch 인증서 검증을 임시로 false에 고정했다.
 - action: Kotlin 백엔드에서 OPENSEARCH_VERIFY_CERTS 환경변수로 인증서 검증을 제어한다.
 - done_when: true와 false 설정이 각각 적용되고 TLS 연결 테스트가 통과한다.
-- last_checked_at:
-- result:
 - next_step_on_fail: Kotlin OpenSearch 클라이언트의 SSL 설정 경로와 환경변수 바인딩을 다시 확인한다.
 
-### WL-20260901-003 — OpenSearch 연결 실패와 재시도 제어
+### WL-20260901-003 - OpenSearch 연결 실패와 재시도 제어
 - status: open
 - priority: P1
 - owner: both
@@ -47,11 +39,9 @@ This file records deferred checks. It does not schedule work.
 - trigger: OpenSearch에 연결할 수 없어도 애플리케이션이 시작되고 connector가 약 1초 간격으로 연결을 반복한다.
 - action: 시작 시 OpenSearch 연결을 확인해 실패하면 애플리케이션을 종료하고, 이후 연결 재시도에는 제한된 지수 백오프를 적용한다.
 - done_when: OpenSearch 연결 실패 시 애플리케이션이 준비 상태가 되지 않고, 재시도 간격과 최대 빈도가 테스트로 검증된다.
-- last_checked_at:
-- result:
 - next_step_on_fail: 시작 의존성 검사 위치와 connector 작업의 재시도 정책을 분리해 다시 확인한다.
 
-### WL-20260901-004 — OpenSearch 장애 중 connector 삭제 복구
+### WL-20260901-004 - OpenSearch 장애 중 connector 삭제 복구
 - status: open
 - priority: P1
 - owner: both
@@ -65,21 +55,7 @@ This file records deferred checks. It does not schedule work.
 - result: OpenShift에서 삭제 요청이 OpenSearch 401 Unauthorized로 실패했다. Backend은 인증 환경변수를 받지만 WebClient에 Authorization 헤더를 설정하지 않았다. pair는 DELETING, job은 RUNNING, attempt는 IN_PROGRESS로 남았다. 목록 UI는 완료 attempt가 없으면 pair 상태를 무시하고 INITIAL_INDEXING으로 표시했다. 1883fa04b에서 배포의 OPENSEARCH_ADMIN_USERNAME·OPENSEARCH_ADMIN_PASSWORD를 Basic Auth로 연결했다.
 - next_step_on_fail: 인증 수정과 삭제 상태 전이를 분리해 테스트한다. 그런 다음 장애 후 재시도 또는 롤백 규칙을 결정한다.
 
-### WL-20260903-001 — OpenSearch 검색 응답 버퍼 한도 임시 상향
-- status: open
-- priority: P2
-- owner: both
-- due_at: unscheduled
-- created_at: 2026-09-03T00:00:00+09:00
-- source: backend/src/main/kotlin/com/onyx/kotlin/opensearch/OpenSearchIndexer.kt
-- trigger: 넓은 검색 쿼리에서 응답이 WebClient 기본 codec 한도(256KB)를 넘어 DataBufferLimitException이 발생했다. OpenSearchIndexer의 client codec maxInMemorySize를 ModelServerClient와 동일하게 16MB로 올려 응급 조치했다.
-- action: 응답 크기를 늘린 한도로 계속 허용하는 대신, 쿼리 쪽에서 _source 필드 제한과 size 상한을 적용하거나 스트리밍 파싱으로 전환해 근본 원인을 없앤다. WL-20260901-006(OpenSearch 공식 client 전환)과 함께 검토한다.
-- done_when: 대형 검색 결과에서도 메모리 사용량이 예측 가능하게 유지되고, 응답 크기 상한을 넘는 쿼리에 대한 처리(에러 반환 또는 페이지네이션)가 테스트로 검증된다.
-- last_checked_at:
-- result:
-- next_step_on_fail: 16MB 한도도 넘는 사례가 재현되면 쿼리 크기 제한을 우선 적용하고 한도 상향은 되돌린다.
-
-### WL-20260903-002 — Jira 크레덴셜 등록 단계의 Base URL 입력 및 검증 분리
+### WL-20260903-002 - Jira 크레덴셜 등록 단계의 Base URL 입력 및 검증 분리
 - status: open
 - priority: P2
 - owner: both
@@ -89,11 +65,9 @@ This file records deferred checks. It does not schedule work.
 - trigger: 현재 Jira 커넥터는 Credential 생성 단계에 Base URL 입력 필드가 없어 커넥터 설정 단계에서 jira_base_url을 받고 있다. 이로 인해 Credential 생성 시점에 Cloud/Server 여부를 알 수 없고 사전 검증도 불가능한 UI/모델 설계 문제가 있다.
 - action: Jira Credential 등록 단계에 Base URL 필드를 추가하여 크레덴셜 생성 시점에 사전 검증과 Cloud/Server 분기를 수행하도록 개선하고, 커넥터 설정 단계에서는 크레덴셜의 Base URL을 연동하도록 재설계한다.
 - done_when: Jira 크레덴셜 생성 UI에서 Base URL을 입력받아 사전 검증할 수 있고, 커넥터 설정과 분리된 온프레미스/클라우드 자격 증명 관리가 테스트로 검증된다.
-- last_checked_at:
-- result:
 - next_step_on_fail: 커넥터 설정 단계의 jira_base_url 기반 판별 로직을 유지하면서 점진적 UI 개편을 진행한다.
 
-### WL-20260910-003 — GitHub PR 리뷰 댓글 문서 정규화
+### WL-20260910-003 - GitHub PR 리뷰 댓글 문서 정규화
 - status: open
 - priority: P2
 - owner: both
@@ -103,11 +77,9 @@ This file records deferred checks. It does not schedule work.
 - trigger: 현재 PR 본문과 리뷰 댓글을 하나의 content 필드에 결합한다. 기존 검색 구조에는 적합하지만 댓글별 식별자와 스레드 관계는 보존하지 않는다.
 - action: 리뷰 댓글 검색 요구가 커지면 PR, 리뷰 스레드, 댓글을 안정적인 ID와 parent_pr_id로 정규화하고 전체 GitHub connector 재수집 절차를 정의한다.
 - done_when: 댓글이 PR 또는 리뷰 스레드 단위 문서로 색인되고 parent 기반 결과 중복 억제, 삭제 반영, 전체 재수집이 테스트로 검증된다.
-- last_checked_at:
-- result:
 - next_step_on_fail: 현재 PR content 결합 방식을 유지하고 댓글 누적 크기 제한과 문서 단위 collapse를 계속 적용한다.
 
-### WL-20260911-001 — cross-pair 중복 문서의 최신 복사본 선택
+### WL-20260911-001 - cross-pair 중복 문서의 최신 복사본 선택
 - status: open
 - priority: P1
 - owner: both
@@ -117,11 +89,9 @@ This file records deferred checks. It does not schedule work.
 - trigger: 서로 다른 base URL은 source_document_id로 구분되지만, 같은 논리 문서를 여러 ccPair가 다른 시점에 색인하면 hybrid collapse가 최신본 대신 검색 점수가 높은 복사본을 선택할 수 있다. keyword와 semantic 검색은 cross-pair collapse를 적용하지 않는다.
 - action: 정규화한 논리 문서 ID와 최신본 우선 atomic upsert를 PR #25 이후 통합하고, pair별 membership과 삭제 동작을 함께 검증한다.
 - done_when: 서로 다른 base URL의 동일 문서 번호는 분리되고, 같은 논리 문서의 구버전과 신버전이 함께 있어도 keyword·semantic·hybrid 검색과 context가 최신 내용만 반환한다.
-- last_checked_at:
-- result:
 - next_step_on_fail: 색인 단계의 최신본 통합과 검색 단계의 최신본 선택 중 더 작은 공통 수정 지점을 다시 비교한다.
 
-### WL-20260911-002 — GitHub GraphQL 전환과 증분 수집·PR N+1 개선
+### WL-20260911-002 - GitHub GraphQL 전환과 증분 수집·PR N+1 개선
 - status: open
 - priority: P1
 - owner: both
@@ -131,41 +101,37 @@ This file records deferred checks. It does not schedule work.
 - trigger: REST 기반 PR 수집은 목록 뒤 각 PR 상세와 리뷰 댓글을 개별 조회해 호출 수가 PR 수에 비례한다. 파일 수집은 저장소에 push가 있으면 전체 tree와 대상 파일을 다시 읽고, 리뷰 댓글만 변경된 경우의 증분 반영 계약도 명확하지 않다.
 - action: GitHub.com과 GitHub Enterprise Server에서 GraphQL로 PR 본문, 메타데이터, 리뷰 스레드와 댓글을 페이지 단위로 조회한다. PR·댓글·파일 변경을 독립적으로 추적하는 시간 범위와 checkpoint를 정하고, 현재 overlap, 삭제 prune, rate limit 비용과 실패 후 재개 계약을 보존한다.
 - done_when: 일반 페이지는 PR별 상세 REST 호출 없이 수집되고, 100개를 넘는 PR·리뷰 스레드·댓글도 누락 없이 이어서 조회된다. 댓글만 변경된 PR과 파일 변경이 불필요한 전체 재조회 없이 반영되며, pagination·checkpoint 재개·삭제 prune이 회귀 테스트로 검증된다.
-- last_checked_at:
-- result:
 - next_step_on_fail: GraphQL 또는 변경 파일 API의 호환성이 부족하면 REST 저장소 단위 댓글 조회와 현재 전체 파일 수집을 분리해 단계적으로 개선한다.
 
-### WL-20260911-003 — Connector 상세 화면 Resolve All 동작 확인
-- status: open
+## Done
+
+### WL-20260911-003 - Connector 상세 화면 Resolve All 동작 확인
+- status: done
 - priority: P1
 - owner: both
 - due_at: unscheduled
 - created_at: 2026-09-11T01:53:32+09:00
 - source: Connector 상세 화면 Resolve All 동작 확인 대화
-- trigger: Connector 상세 화면의 Resolve All 실행 후 상태가 정상 반영되지 않는다. DB가 업데이트되지 않는 것으로 추정되지만 아직 확인하지 않았다.
-- action: Resolve All 요청의 frontend 호출, backend 처리, DB 갱신과 화면 재조회 흐름을 재현하고 실패 지점을 확인한다.
-- done_when: Resolve All 실행 후 대상 상태가 DB에 저장되고 Connector 상세 화면에 반영되는 통합 시나리오가 검증된다.
-- last_checked_at:
-- result:
-- next_step_on_fail: 요청 응답과 backend 로그를 DB 상태 전후와 대조해 API 처리 실패와 화면 갱신 실패를 분리한다.
+- trigger: Resolve All 뒤 full reindex가 끝나도 오류 알림이 남았다.
+- action: Python과 같은 오류 재색인 및 해결 규칙을 Kotlin에 적용한다.
+- done_when: 성공, 삭제, 재실패와 불완전 열거 시나리오가 통합 테스트를 통과한다.
+- last_checked_at: 2026-09-11T22:44:02+09:00
+- result: Confluence targeted reindex와 완전한 full reindex의 과거 오류 정리를 구현했다. 삭제 문서는 색인과 DB에서 제거하며 재실패와 불완전 열거 오류는 보존한다. 단위 테스트 344개와 OpenSearch 통합 테스트 9개가 통과했다.
 
-### WL-20260911-004 — Resilience4j 기반 커넥터 부하 및 장애 격리
-- status: open
-- priority: P1
+### WL-20260903-001 - OpenSearch 검색 응답 버퍼 한도 임시 상향
+- status: dropped
+- priority: P2
 - owner: both
 - due_at: unscheduled
-- created_at: 2026-09-11T08:11:09+09:00
-- source: PR #28; backend/src/main/kotlin/com/onyx/kotlin/connector/loader/RemoteJsonClient.kt; backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionWorker.kt
-- trigger: 현재 remote connector 요청에는 대상 서버별 QPS, 동시 실행 수, 연속 장애 격리가 없다. 단일 worker의 직렬 실행은 worker replica가 늘어나면 같은 사내 공용 서버의 부하 상한을 보장하지 못한다.
-- action: Spring Boot 4 호환성을 확인한 뒤 Resilience4j RateLimiter, Bulkhead, CircuitBreaker를 공통 remote connector 경계에 적용한다. 서버 origin별 정책, Retry-After 우선 처리, 대상 오류 분류와 여러 worker에서의 적용 범위를 정의한다.
-- done_when: Jira, Confluence, GitHub 요청이 설정한 origin별 QPS와 동시 실행 상한을 지키고, 지정한 일시적 장애에만 circuit이 열린다. 4xx 인증·권한 오류와 429가 잘못 집계되지 않으며 부하·복구 동작이 테스트로 검증된다.
-- last_checked_at:
-- result:
-- next_step_on_fail: Spring Boot 4 starter 호환성이 없으면 Resilience4j core의 programmatic decorator를 사용하고, 여러 worker의 전역 상한은 분산 slot으로 분리한다.
+- created_at: 2026-09-03T00:00:00+09:00
+- source: e41aa6847; backend/src/main/kotlin/com/onyx/kotlin/opensearch/OpenSearchIndexer.kt
+- trigger: WebClient의 256KB 응답 제한 때문에 OpenSearch 검색 버퍼를 16MB로 임시 상향했다.
+- action: 임시 버퍼 상향을 제거할 수 있는지 확인한다.
+- done_when: OpenSearch 검색이 WebClient codec 제한에 의존하지 않는다.
+- last_checked_at: 2026-09-11T23:45:58+09:00
+- result: OpenSearch가 공식 Java client로 전환되어 WebClient codec 제한과 16MB 임시 설정이 모두 제거됐다. 기존 후속 작업은 더 이상 적용되지 않는다.
 
-## Done
-
-### WL-20260901-005 — Confluence space probe의 lazy 계약 복구
+### WL-20260901-005 - Confluence space probe의 lazy 계약 복구
 - status: done
 - priority: P1
 - owner: both
@@ -179,7 +145,7 @@ This file records deferred checks. It does not schedule work.
 - result: ae515b531에서 credential probe가 첫 space 뒤 중단되도록 수정했고, 전체 pagination과 Cloud v2 fallback 테스트를 분리해 검증했다.
 - next_step_on_fail: probe 전용 API와 전체 space pagination API를 분리하는 설계를 다시 검토한다.
 
-### WL-20260901-006 — OpenSearch 공식 Java client 전환
+### WL-20260901-006 - OpenSearch 공식 Java client 전환
 - status: done
 - priority: P1
 - owner: both
@@ -193,7 +159,7 @@ This file records deferred checks. It does not schedule work.
 - result: e41aa6847부터 OpenSearch Java Client와 ApacheHttpClient5Transport를 사용한다. 이후 자동 reindex와 alias 교체는 요구사항 변경으로 제거했고, 현재 strict mapping과 검색·쓰기 계약을 통합 테스트로 검증한다.
 - next_step_on_fail: 공식 client에 typed API가 없는 작업만 generic transport로 분리한다.
 
-### WL-20260902-001 — Spring 업그레이드와 Spring AI 도입 검토
+### WL-20260902-001 - Spring 업그레이드와 Spring AI 도입 검토
 - status: done
 - priority: P2
 - owner: both
@@ -207,7 +173,7 @@ This file records deferred checks. It does not schedule work.
 - result: Spring Boot 4.0.7과 Spring AI 1.0.0을 도입했다. OpenSearch Java Client 기반 vector store와 native hybrid 검색 계약을 구현하고 관련 테스트를 추가했다.
 - next_step_on_fail: 현재 OpenSearch Java Client 기반 구현과 Spring AI 경계를 다시 확인한다.
 
-### WL-20260910-001 — 동일 문서 chunk의 검색 결과 독식 방지
+### WL-20260910-001 - 동일 문서 chunk의 검색 결과 독식 방지
 - status: done
 - priority: P0
 - owner: assistant_on_review
@@ -221,7 +187,7 @@ This file records deferred checks. It does not schedule work.
 - result: 9fa27fec3에서 source_document_id 기준 OpenSearch collapse를 추가해 동일 logical document의 중복 chunk를 제거했고 검색 회귀 테스트로 검증했다.
 - next_step_on_fail: collapse 이후에도 다양성이 부족하면 connector 범위 필터와 후보 배수를 별도로 측정한다.
 
-### WL-20260910-002 — limit 증가에 따른 MCP 응답 토큰 과대 방지
+### WL-20260910-002 - limit 증가에 따른 MCP 응답 토큰 과대 방지
 - status: done
 - priority: P0
 - owner: assistant_on_review
@@ -236,3 +202,16 @@ This file records deferred checks. It does not schedule work.
 - next_step_on_fail: 기본 limit 하향과 선택적 상세 조회를 분리해 단계적으로 적용한다.
 
 ## Archive
+
+### WL-20260911-004 - Resilience4j 기반 커넥터 부하 및 장애 격리
+- status: dropped
+- priority: P1
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-11T08:11:09+09:00
+- source: PR #28; backend/src/main/kotlin/com/onyx/kotlin/connector/loader/RemoteJsonClient.kt; backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionWorker.kt
+- trigger: 여러 worker Pod가 같은 pair와 job을 중복 실행할 가능성을 확인해야 했다.
+- action: 기존 active-job 제약, pair lock, lease와 claim token 보호를 검증한다.
+- done_when: 동시 enqueue와 claim, lease reclaim, stale worker 차단과 checkpoint 보존 테스트가 통과한다.
+- last_checked_at: 2026-09-11T22:24:24+09:00
+- result: 추가 처리가 필요 없다. 각 Pod의 ingestion worker는 기본 단일 스레드 scheduler에서 job을 하나씩 동기 처리한다. 여러 Pod가 동시에 polling해도 active-job unique constraint, pair 비관적 잠금과 조건부 claim이 같은 pair와 job의 실행자를 하나로 제한한다. lease 만료 후에는 claim token 검증이 이전 worker의 쓰기와 완료 처리를 차단한다. 동시 claim과 lease reclaim 테스트로 이 동작을 확인했으므로 Resilience4j와 추가 락을 도입하지 않는다.
