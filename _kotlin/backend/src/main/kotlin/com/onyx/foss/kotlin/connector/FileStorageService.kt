@@ -1,10 +1,12 @@
-package com.onyx.foss.kotlin.service
+package com.onyx.foss.kotlin.connector
 
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.databind.node.ArrayNode
 import tools.jackson.databind.node.ObjectNode
 import com.onyx.foss.kotlin.api.ApiException
 import com.onyx.foss.kotlin.config.OnyxProperties
+import com.onyx.foss.kotlin.ingestion.IngestionCommandService
+import com.onyx.foss.kotlin.ingestion.RunConnectorRequest
 import com.onyx.foss.kotlin.connector.ConnectorSource
 import com.onyx.foss.kotlin.connector.FileAssetEntity
 import com.onyx.foss.kotlin.connector.FileAssetRepository
@@ -26,7 +28,8 @@ class FileStorageService(
     private val properties: OnyxProperties,
     private val mapper: ObjectMapper,
     private val fileAssets: FileAssetRepository,
-    private val admin: AdminService,
+    private val connector: ConnectorService,
+    private val commands: IngestionCommandService,
 ) {
     private val root: Path = Path.of(properties.storage.root).toAbsolutePath().normalize()
 
@@ -48,7 +51,7 @@ class FileStorageService(
     }
 
     fun listConnectorFiles(connectorId: Long): Map<String, Any?> {
-        val connector = admin.connector(connectorId)
+        val connector = connector.connector(connectorId)
         if (connector.source != ConnectorSource.FILE) {
             throw ApiException(HttpStatus.BAD_REQUEST, "This endpoint only works with file connectors")
         }
@@ -72,7 +75,7 @@ class FileStorageService(
         newFiles: List<MultipartFile>,
         idsToRemove: List<String>,
     ): Map<String, Any?> {
-        val connector = admin.connector(connectorId)
+        val connector = connector.connector(connectorId)
         if (connector.source != ConnectorSource.FILE) {
             throw ApiException(HttpStatus.BAD_REQUEST, "This endpoint only works with file connectors")
         }
@@ -93,9 +96,9 @@ class FileStorageService(
         config.set("file_names", mapper.valueToTree(currentFiles.map { it.second }))
         config.put("zip_metadata_file_id", metadataId)
         connector.connectorSpecificConfig = config
-        admin.updateConnector(
+        this.connector.updateConnector(
             connectorId,
-            com.onyx.foss.kotlin.api.ConnectorRequest(
+            ConnectorRequest(
                 name = connector.name,
                 source = connector.source,
                 inputType = connector.inputType,
@@ -105,8 +108,8 @@ class FileStorageService(
                 indexingStart = connector.indexingStart,
             ),
         )
-        admin.enqueue(
-            com.onyx.foss.kotlin.api.RunConnectorRequest(
+        commands.enqueue(
+            RunConnectorRequest(
                 connectorId = connectorId,
                 fromBeginning = true,
             ),

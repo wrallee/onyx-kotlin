@@ -19,8 +19,8 @@ import com.onyx.foss.kotlin.ingestion.IndexedDocumentEntity
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
 import com.onyx.foss.kotlin.ingestion.JobState
 import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
-import com.onyx.foss.kotlin.service.AdminService
-import com.onyx.foss.kotlin.service.FileStorageService
+import com.onyx.foss.kotlin.connector.ConnectorService
+import com.onyx.foss.kotlin.connector.FileStorageService
 import com.onyx.foss.kotlin.support.H2IntegrationTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -49,7 +49,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put
 class AdminApiIntegrationTest : H2IntegrationTest() {
     @Autowired private lateinit var mvc: MockMvc
     @Autowired private lateinit var mapper: ObjectMapper
-    @Autowired private lateinit var admin: AdminService
+    @Autowired private lateinit var admin: ConnectorService
     @Autowired private lateinit var credentials: CredentialRepository
     @Autowired private lateinit var connectors: ConnectorRepository
     @Autowired private lateinit var pairs: ConnectorCredentialPairRepository

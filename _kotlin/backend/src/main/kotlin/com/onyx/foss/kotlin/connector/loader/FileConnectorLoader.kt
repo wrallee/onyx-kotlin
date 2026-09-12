@@ -3,7 +3,7 @@ package com.onyx.foss.kotlin.connector.loader
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import com.onyx.foss.kotlin.connector.ConnectorSource
-import com.onyx.foss.kotlin.service.FileStorageService
+import com.onyx.foss.kotlin.connector.FileStorageService
 import org.apache.tika.metadata.Metadata
 import org.apache.tika.parser.AutoDetectParser
 import org.apache.tika.sax.BodyContentHandler

@@ -35,9 +35,9 @@ import com.onyx.foss.kotlin.ingestion.JobState
 import com.onyx.foss.kotlin.connector.PairStatus
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
 import com.onyx.foss.kotlin.security.CredentialCipher
-import com.onyx.foss.kotlin.service.AdminService
-import com.onyx.foss.kotlin.api.DeletionAttemptRequest
-import com.onyx.foss.kotlin.api.RunConnectorRequest
+import com.onyx.foss.kotlin.connector.ConnectorService
+import com.onyx.foss.kotlin.connector.DeletionAttemptRequest
+import com.onyx.foss.kotlin.ingestion.RunConnectorRequest
 import com.onyx.foss.kotlin.config.OnyxProperties
 import com.onyx.foss.kotlin.support.H2IntegrationTest
 import org.assertj.core.api.Assertions.assertThat
@@ -68,7 +68,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     @Autowired private lateinit var processor: IngestionProcessor
-    @Autowired private lateinit var admin: AdminService
+    @Autowired private lateinit var admin: ConnectorService
+    @Autowired private lateinit var commands: IngestionCommandService
     @Autowired private lateinit var claims: JobClaimService
     @Autowired private lateinit var scheduler: IngestionScheduler
     @Autowired private lateinit var mapper: ObjectMapper
@@ -406,7 +407,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         pair.inRepeatedErrorState = true
         pairs.save(pair)
 
-        admin.enqueue(RunConnectorRequest(connectorId = pair.connectorId, credentialIds = listOf(pair.credentialId)))
+        commands.enqueue(RunConnectorRequest(connectorId = pair.connectorId, credentialIds = listOf(pair.credentialId)))
         val updated = pairs.findById(pairId).orElseThrow()
         assertThat(updated.inRepeatedErrorState).isFalse()
         assertThat(updated.status).isEqualTo(PairStatus.ACTIVE)
@@ -837,8 +838,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun manualDuplicateEnqueueReturnsExistingActiveJob() {
         val pairId = createPair(status = PairStatus.ACTIVE)
 
-        val first = admin.enqueuePair(pairId, fromBeginning = false)
-        val duplicate = admin.enqueuePair(pairId, fromBeginning = true)
+        val first = commands.enqueuePair(pairId, fromBeginning = false)
+        val duplicate = commands.enqueuePair(pairId, fromBeginning = true)
 
         assertThat(duplicate).isEqualTo(first)
         assertThat(attempts.count()).isEqualTo(1)

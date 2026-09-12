@@ -1,9 +1,8 @@
-package com.onyx.foss.kotlin.ingestion
+package com.onyx.foss.kotlin.documentset
 
 import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
 
 import tools.jackson.databind.ObjectMapper
-import com.onyx.foss.kotlin.api.DocumentSetRequest
 import com.onyx.foss.kotlin.connector.ConnectorCredentialPairEntity
 import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository
 import com.onyx.foss.kotlin.connector.ConnectorEntity
@@ -18,7 +17,7 @@ import com.onyx.foss.kotlin.documentset.DocumentSetSyncStatus
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentEntity
 import com.onyx.foss.kotlin.ingestion.IndexedDocumentRepository
 import com.onyx.foss.kotlin.security.CredentialCipher
-import com.onyx.foss.kotlin.service.AdminService
+import com.onyx.foss.kotlin.documentset.DocumentSetService
 import com.onyx.foss.kotlin.support.H2IntegrationTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -40,7 +39,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
-    @Autowired private lateinit var admin: AdminService
+    @Autowired private lateinit var admin: DocumentSetService
     @Autowired private lateinit var worker: DocumentSetSyncWorker
     @Autowired private lateinit var claims: DocumentSetSyncClaimService
     @Autowired private lateinit var indexer: OpenSearchIndexer

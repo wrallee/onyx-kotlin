@@ -6,7 +6,6 @@ import com.onyx.foss.kotlin.connector.ConnectorRepository
 import com.onyx.foss.kotlin.ingestion.IngestionAttemptRepository
 import com.onyx.foss.kotlin.ingestion.JobState
 import com.onyx.foss.kotlin.connector.PairStatus
-import com.onyx.foss.kotlin.service.AdminService
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -18,7 +17,7 @@ class IngestionScheduler(
     private val pairs: ConnectorCredentialPairRepository,
     private val connectors: ConnectorRepository,
     private val attempts: IngestionAttemptRepository,
-    private val admin: AdminService,
+    private val commands: IngestionCommandService,
 ) {
     @Scheduled(fixedDelayString = "\${onyx.scheduler.poll-delay-ms:15000}")
     @Transactional
@@ -47,8 +46,8 @@ class IngestionScheduler(
                 else -> !lastAttemptAt.plusSeconds(connector.refreshFreq!!).isAfter(now)
             }
             when {
-                pruneDue -> admin.enqueuePair(pairId, fromBeginning = false, pruneOnly = true)
-                refreshDue -> admin.enqueuePair(pairId, fromBeginning = false)
+                pruneDue -> commands.enqueuePair(pairId, fromBeginning = false, pruneOnly = true)
+                refreshDue -> commands.enqueuePair(pairId, fromBeginning = false)
             }
         }
     }

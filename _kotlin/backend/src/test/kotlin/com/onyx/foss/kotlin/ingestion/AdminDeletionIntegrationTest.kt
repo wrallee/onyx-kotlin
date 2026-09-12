@@ -5,11 +5,11 @@ import com.onyx.foss.kotlin.opensearch.PairExternalWriteFence
 
 import tools.jackson.databind.ObjectMapper
 import com.onyx.foss.kotlin.api.ApiException
-import com.onyx.foss.kotlin.api.CCPropertyUpdateRequest
-import com.onyx.foss.kotlin.api.ConnectorRequest
-import com.onyx.foss.kotlin.api.DeletionAttemptRequest
-import com.onyx.foss.kotlin.api.PairMetadataRequest
-import com.onyx.foss.kotlin.api.RunConnectorRequest
+import com.onyx.foss.kotlin.connector.CCPropertyUpdateRequest
+import com.onyx.foss.kotlin.connector.ConnectorRequest
+import com.onyx.foss.kotlin.connector.DeletionAttemptRequest
+import com.onyx.foss.kotlin.connector.PairMetadataRequest
+import com.onyx.foss.kotlin.ingestion.RunConnectorRequest
 import com.onyx.foss.kotlin.connector.ConnectorCredentialPairEntity
 import com.onyx.foss.kotlin.connector.ConnectorCredentialPairRepository
 import com.onyx.foss.kotlin.connector.ConnectorEntity
@@ -19,7 +19,7 @@ import com.onyx.foss.kotlin.connector.CredentialEntity
 import com.onyx.foss.kotlin.connector.CredentialRepository
 import com.onyx.foss.kotlin.connector.PairStatus
 import com.onyx.foss.kotlin.security.CredentialCipher
-import com.onyx.foss.kotlin.service.AdminService
+import com.onyx.foss.kotlin.connector.ConnectorService
 import com.onyx.foss.kotlin.support.H2IntegrationTest
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
@@ -40,7 +40,8 @@ import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
 class AdminDeletionIntegrationTest : H2IntegrationTest() {
-    @Autowired private lateinit var admin: AdminService
+    @Autowired private lateinit var admin: ConnectorService
+    @Autowired private lateinit var commands: IngestionCommandService
     @Autowired private lateinit var mapper: ObjectMapper
     @Autowired private lateinit var cipher: CredentialCipher
     @Autowired private lateinit var connectors: ConnectorRepository
@@ -81,8 +82,8 @@ class AdminDeletionIntegrationTest : H2IntegrationTest() {
                 )
             }
             assertConflict { admin.setPairStatus(fixture.pairId, PairStatus.ACTIVE) }
-            assertConflict { admin.enqueuePair(fixture.pairId, fromBeginning = false) }
-            assertConflict { admin.enqueue(RunConnectorRequest(connectorId = fixture.connectorId)) }
+            assertConflict { commands.enqueuePair(fixture.pairId, fromBeginning = false) }
+            assertConflict { commands.enqueue(RunConnectorRequest(connectorId = fixture.connectorId)) }
             assertConflict { admin.updateConnector(fixture.connectorId, connectorRequest("late update")) }
             assertConflict { admin.renamePair(fixture.pairId, "late rename") }
             assertConflict {

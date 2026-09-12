@@ -14,7 +14,7 @@ import com.onyx.foss.kotlin.documentset.DocumentSetRepository
 import com.onyx.foss.kotlin.model.ModelServerClient
 import com.onyx.foss.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.foss.kotlin.opensearch.PairExternalWriteFence
-import com.onyx.foss.kotlin.service.AdminService
+import com.onyx.foss.kotlin.connector.ConnectorService
 import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Service
 class IngestionProcessor(
     private val properties: OnyxProperties,
-    private val admin: AdminService,
+    private val connectorService: ConnectorService,
     private val pairs: ConnectorCredentialPairRepository,
     private val attempts: IngestionAttemptRepository,
     private val checkpoints: IngestionCheckpointRepository,
@@ -51,7 +51,7 @@ class IngestionProcessor(
         val pair = pairs.findById(claim.pairId).orElse(null) ?: return
         var refreshFreq: Long? = null
         try {
-            val connector = admin.connector(pair.connectorId)
+            val connector = connectorService.connector(pair.connectorId)
             refreshFreq = connector.refreshFreq
             if (!attempt.pruneOnly) setPollRange(attempt, connector.indexingStart)
             attempts.save(attempt)
@@ -60,7 +60,7 @@ class IngestionProcessor(
             } else {
                 checkpoints.findById(requireNotNull(pair.id)).orElse(null)?.checkpointJson
             }
-            val credentials = admin.credentialSecret(pair.credentialId)
+            val credentials = connectorService.credentialSecret(pair.credentialId)
             val batches = if (attempt.pruneOnly) {
                 when (connector.source) {
                     ConnectorSource.FILE -> fileLoader.load(connector.connectorSpecificConfig)

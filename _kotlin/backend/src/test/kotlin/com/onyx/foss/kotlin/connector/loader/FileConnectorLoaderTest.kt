@@ -2,7 +2,7 @@ package com.onyx.foss.kotlin.connector.loader
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.foss.kotlin.connector.ConnectorSource
-import com.onyx.foss.kotlin.service.FileStorageService
+import com.onyx.foss.kotlin.connector.FileStorageService
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.mockito.Mockito.doReturn

@@ -1,9 +1,8 @@
 package com.onyx.foss.kotlin.api
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
-import com.onyx.foss.kotlin.service.AdminService
-import com.onyx.foss.kotlin.service.FileStorageService
-import com.onyx.foss.kotlin.service.IngestionQueryService
+import com.onyx.foss.kotlin.ingestion.IngestionQueryService
+import com.onyx.foss.kotlin.ingestion.IngestionStatusController
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
@@ -29,10 +28,8 @@ class SettingsAndStatusContractTest {
 
     @Test
     fun connectorStatusKeepsTheConnectorStatusContract() {
-        val admin = mock(AdminService::class.java)
-        val fileStorage = mock(FileStorageService::class.java)
         val ingestion = mock(IngestionQueryService::class.java)
-        `when`(admin.connectorStatuses()).thenReturn(
+        `when`(ingestion.connectorStatuses()).thenReturn(
             listOf(
                 mapOf(
                     "cc_pair_id" to 7,
@@ -45,7 +42,7 @@ class SettingsAndStatusContractTest {
             ),
         )
         val mvc: MockMvc = MockMvcBuilders.standaloneSetup(
-            AdminController(admin, fileStorage, ingestion, jacksonObjectMapper()),
+            IngestionStatusController(ingestion),
         ).build()
 
         mvc.perform(get("/manage/admin/connector/status"))

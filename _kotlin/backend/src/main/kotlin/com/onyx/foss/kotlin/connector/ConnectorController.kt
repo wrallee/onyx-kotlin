@@ -1,12 +1,11 @@
-package com.onyx.foss.kotlin.api
+package com.onyx.foss.kotlin.connector
 
 import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
-import com.onyx.foss.kotlin.connector.ConnectorSource
-import com.onyx.foss.kotlin.connector.PairStatus
-import com.onyx.foss.kotlin.service.AdminService
-import com.onyx.foss.kotlin.service.FileStorageService
-import com.onyx.foss.kotlin.service.IngestionQueryService
+import com.onyx.foss.kotlin.api.ObjectCreationResponse
+import com.onyx.foss.kotlin.api.StatusResponse
+import com.onyx.foss.kotlin.ingestion.IngestionCommandService
+import com.onyx.foss.kotlin.ingestion.RunConnectorRequest
 import jakarta.validation.Valid
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -23,86 +22,78 @@ import org.springframework.web.multipart.MultipartFile
 
 @RestController
 @RequestMapping("/manage")
-class AdminController(
-    private val admin: AdminService,
+class ConnectorController(
+    private val connector: ConnectorService,
     private val files: FileStorageService,
-    private val ingestion: IngestionQueryService,
+    private val commands: IngestionCommandService,
     private val mapper: ObjectMapper,
 ) {
     @PostMapping("/credential")
     fun createCredential(@Valid @RequestBody request: CredentialRequest): ObjectCreationResponse =
-        admin.createCredential(request)
+        connector.createCredential(request)
 
     @GetMapping("/credential")
-    fun credentials(): List<Map<String, Any?>> = admin.listCredentials(null)
+    fun credentials(): List<Map<String, Any?>> = connector.listCredentials(null)
 
     @GetMapping("/credential/{credentialId}")
     fun credential(@PathVariable credentialId: Long): Map<String, Any?> =
-        admin.credentialSnapshot(admin.credential(credentialId))
+        connector.credentialSnapshot(connector.credential(credentialId))
 
     @GetMapping("/admin/credential")
-    fun adminCredentials(): List<Map<String, Any?>> = admin.listCredentials(null)
+    fun adminCredentials(): List<Map<String, Any?>> = connector.listCredentials(null)
 
     @GetMapping("/admin/similar-credentials/{source}")
     fun similarCredentials(@PathVariable source: String): List<Map<String, Any?>> =
-        admin.listCredentials(ConnectorSource.fromValue(source))
+        connector.listCredentials(ConnectorSource.fromValue(source))
 
     @PutMapping("/admin/credential/{credentialId}")
     fun updateCredential(
         @PathVariable credentialId: Long,
         @Valid @RequestBody request: CredentialUpdateRequest,
-    ): Map<String, Any?> = admin.updateCredential(credentialId, request)
+    ): Map<String, Any?> = connector.updateCredential(credentialId, request)
 
     @DeleteMapping("/credential/{credentialId}", "/admin/credential/{credentialId}")
-    fun deleteCredential(@PathVariable credentialId: Long): StatusResponse = admin.deleteCredential(credentialId)
+    fun deleteCredential(@PathVariable credentialId: Long): StatusResponse = connector.deleteCredential(credentialId)
 
     @GetMapping("/connector")
-    fun connectors(): List<Map<String, Any?>> = admin.listConnectors(null)
+    fun connectors(): List<Map<String, Any?>> = connector.listConnectors(null)
 
     @GetMapping("/connector/{connectorId}")
     fun connector(@PathVariable connectorId: Long): Map<String, Any?> =
-        admin.connectorSnapshot(admin.connector(connectorId))
+        connector.connectorSnapshot(connector.connector(connectorId))
 
     @GetMapping("/admin/connector")
     fun adminConnectors(@RequestParam("credential", required = false) credentialId: Long?): List<Map<String, Any?>> =
-        admin.listConnectors(credentialId)
+        connector.listConnectors(credentialId)
 
     @PostMapping("/admin/connector")
     fun createConnector(@Valid @RequestBody request: ConnectorRequest): ObjectCreationResponse =
-        admin.createConnector(request)
+        connector.createConnector(request)
     @PostMapping("/admin/connector-with-mock-credential")
     fun createConnectorWithMockCredential(@Valid @RequestBody request: ConnectorRequest): StatusResponse =
-        admin.createConnectorWithMockCredential(request)
+        connector.createConnectorWithMockCredential(request)
 
     @PatchMapping("/admin/connector/{connectorId}")
     fun updateConnector(
         @PathVariable connectorId: Long,
         @Valid @RequestBody request: ConnectorRequest,
-    ): Map<String, Any?> = admin.updateConnector(connectorId, request)
+    ): Map<String, Any?> = connector.updateConnector(connectorId, request)
 
     @DeleteMapping("/admin/connector/{connectorId}")
-    fun deleteConnector(@PathVariable connectorId: Long): StatusResponse = admin.deleteConnector(connectorId)
+    fun deleteConnector(@PathVariable connectorId: Long): StatusResponse = connector.deleteConnector(connectorId)
 
     @PostMapping("/admin/deletion-attempt")
-    fun deletePair(@RequestBody request: DeletionAttemptRequest): StatusResponse = admin.deletePair(request)
+    fun deletePair(@RequestBody request: DeletionAttemptRequest): StatusResponse = connector.deletePair(request)
 
     @PutMapping("/connector/{connectorId}/credential/{credentialId}")
     fun associateCredential(
         @PathVariable connectorId: Long,
         @PathVariable credentialId: Long,
         @Valid @RequestBody request: PairMetadataRequest,
-    ): StatusResponse = admin.associate(connectorId, credentialId, request)
+    ): StatusResponse = connector.associate(connectorId, credentialId, request)
 
     @PostMapping("/admin/connector/run-once")
-    fun runConnector(@RequestBody request: RunConnectorRequest): StatusResponse = admin.enqueue(request)
-
-    @PostMapping("/admin/connector/indexing-status")
-    fun indexingStatus(@RequestBody request: IndexingStatusRequest): List<Map<String, Any?>> =
-        admin.indexingStatus(request.source, request.nameFilter)
-
-    @GetMapping("/admin/connector/status", "/connector-status")
-    fun connectorStatus(): List<Map<String, Any?>> = admin.connectorStatuses()
-
+    fun runConnector(@RequestBody request: RunConnectorRequest): StatusResponse = commands.enqueue(request)
     @PostMapping("/admin/connector/file/upload", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     fun uploadFiles(@RequestParam("files") uploaded: List<MultipartFile>): Map<String, Any?> = files.upload(uploaded)
 
@@ -121,56 +112,23 @@ class AdminController(
     )
 
     @GetMapping("/admin/cc-pair/{pairId}")
-    fun ccPair(@PathVariable pairId: Long): Map<String, Any?> = admin.pairDetail(pairId)
+    fun ccPair(@PathVariable pairId: Long): Map<String, Any?> = connector.pairDetail(pairId)
 
     @PutMapping("/admin/cc-pair/{pairId}/status")
     fun updatePairStatus(
         @PathVariable pairId: Long,
         @RequestBody request: PairStatusRequest,
-    ): Map<String, Any?> = admin.setPairStatus(pairId, request.status)
+    ): Map<String, Any?> = connector.setPairStatus(pairId, request.status)
 
     @PutMapping("/admin/cc-pair/{pairId}/name")
     fun updatePairName(
         @PathVariable pairId: Long,
         @RequestParam("new_name") name: String,
-    ): Map<String, Any?> = admin.renamePair(pairId, name)
+    ): Map<String, Any?> = connector.renamePair(pairId, name)
 
     @PutMapping("/admin/cc-pair/{pairId}/property")
     fun updatePairProperty(
         @PathVariable pairId: Long,
         @Valid @RequestBody request: CCPropertyUpdateRequest,
-    ): StatusResponse = admin.updatePairProperty(pairId, request)
-
-    @GetMapping("/admin/cc-pair/{pairId}/index-attempts")
-    fun attempts(
-        @PathVariable pairId: Long,
-        @RequestParam("page_num", defaultValue = "0") page: Int,
-        @RequestParam("page_size", defaultValue = "10") pageSize: Int,
-    ): Map<String, Any?> = ingestion.attempts(pairId, page, pageSize)
-
-    @GetMapping("/admin/cc-pair/{pairId}/errors")
-    fun errors(
-        @PathVariable pairId: Long,
-        @RequestParam("page_num", defaultValue = "0") page: Int,
-        @RequestParam("page_size", defaultValue = "10") pageSize: Int,
-    ): Map<String, Any?> = ingestion.errors(pairId, page, pageSize)
-
-    @PostMapping("/admin/document-set")
-    fun createSet(@Valid @RequestBody request: DocumentSetRequest): Long = admin.createSet(request)
-
-    @PatchMapping("/admin/document-set")
-    fun updateSet(@Valid @RequestBody request: DocumentSetRequest) = admin.updateSet(request)
-
-    @DeleteMapping("/admin/document-set/{setId}")
-    fun deleteSet(@PathVariable setId: Long) = admin.deleteSet(setId)
-
-    @GetMapping("/admin/document-set/{setId}")
-    fun documentSet(@PathVariable setId: Long): Map<String, Any?> =
-        admin.documentSet(setId)
-
-    @GetMapping("/document-set")
-    fun documentSets(): List<Map<String, Any?>> = admin.listSets()
-
-    @GetMapping("/document-set-public")
-    fun documentSetPublic(): Map<String, Boolean> = mapOf("is_public" to true)
+    ): StatusResponse = connector.updatePairProperty(pairId, request)
 }
