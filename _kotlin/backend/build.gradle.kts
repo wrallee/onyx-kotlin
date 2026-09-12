@@ -8,7 +8,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
 }
 
-group = "com.onyx.foss"
+group = "com.onyx.kotlin"
 version = "0.1.0"
 
 // Hibernate 7.3+ includes native Jackson 3 support for @JdbcTypeCode(SqlTypes.JSON) mapping
