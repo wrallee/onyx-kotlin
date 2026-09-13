@@ -78,42 +78,42 @@
 - `backend/build.gradle.kts`: Testcontainers dependency와 integration test 설정
 - `backend/gradlew`, `backend/gradlew.bat`, `backend/gradle/wrapper/*`: 고정 Gradle 실행기
 - `backend/PYTHON_PARITY.md`: Python 시나리오와 Kotlin 검증의 대응표
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/support/PostgresIntegrationTest.kt`: PostgreSQL test base
+- `backend/src/test/kotlin/com/onyx/kotlin/support/PostgresIntegrationTest.kt`: PostgreSQL test base
 - `backend/src/main/resources/db/migration/V2__ingestion_parity_and_permissions.sql`: failure, ACL, permission attempt schema
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/domain/Domain.kt`: 신규 entity와 enum
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/domain/Repositories.kt`: 신규 조회와 lock query
+- `backend/src/main/kotlin/com/onyx/kotlin/domain/Domain.kt`: 신규 entity와 enum
+- `backend/src/main/kotlin/com/onyx/kotlin/domain/Repositories.kt`: 신규 조회와 lock query
 
 ### 수집 core
 
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/ConnectorModels.kt`: document, batch, checkpoint, failure, ACL
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionWorker.kt`: batch orchestration과 상태 전이
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionScheduler.kt`: refresh와 full-prune job 생성
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/PruningService.kt`: 누락 문서 계산과 삭제
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteJsonClient.kt`: HTTP 요청과 connector별 retry 지원점
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteConnectorLoaders.kt`: source dispatch만 담당
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/FileConnectorLoader.kt`: File 변환
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/JiraConnectorLoader.kt`: Jira 수집
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/ConfluenceConnectorLoader.kt`: Confluence 수집
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/GithubConnectorLoader.kt`: GitHub 수집
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/ConnectorModels.kt`: document, batch, checkpoint, failure, ACL
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionWorker.kt`: batch orchestration과 상태 전이
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionScheduler.kt`: refresh와 full-prune job 생성
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/PruningService.kt`: 누락 문서 계산과 삭제
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteJsonClient.kt`: HTTP 요청과 connector별 retry 지원점
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteConnectorLoaders.kt`: source dispatch만 담당
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/FileConnectorLoader.kt`: File 변환
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/JiraConnectorLoader.kt`: Jira 수집
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/ConfluenceConnectorLoader.kt`: Confluence 수집
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/GithubConnectorLoader.kt`: GitHub 수집
 
 ### Permission sync
 
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/PermissionSyncWorker.kt`: attempt 생성, lock, ACL upsert
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/api/AdminController.kt`: 실제 permission attempt 응답
-- `backend/src/main/kotlin/com/onyx/foss/kotlin/service/IngestionQueryService.kt`: permission attempt pagination
+- `backend/src/main/kotlin/com/onyx/kotlin/ingestion/PermissionSyncWorker.kt`: attempt 생성, lock, ACL upsert
+- `backend/src/main/kotlin/com/onyx/kotlin/api/AdminController.kt`: 실제 permission attempt 응답
+- `backend/src/main/kotlin/com/onyx/kotlin/service/IngestionQueryService.kt`: permission attempt pagination
 
 ### Test files
 
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/api/AdminApiIntegrationTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/domain/SchemaV2IntegrationTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/ConnectorModelsTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/IngestionProcessorIntegrationTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/PruningServiceTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/FileConnectorLoaderTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/JiraConnectorLoaderTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/ConfluenceConnectorLoaderTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/GithubConnectorLoaderTest.kt`
-- `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/PermissionSyncIntegrationTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/api/AdminApiIntegrationTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/domain/SchemaV2IntegrationTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/ConnectorModelsTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/IngestionProcessorIntegrationTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/PruningServiceTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/FileConnectorLoaderTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/JiraConnectorLoaderTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/ConfluenceConnectorLoaderTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/GithubConnectorLoaderTest.kt`
+- `backend/src/test/kotlin/com/onyx/kotlin/ingestion/PermissionSyncIntegrationTest.kt`
 - `scripts/test-kotlin-file-ingestion.sh`: live stack 검증
 
 ---
@@ -127,8 +127,8 @@
 - Create: `backend/gradle/wrapper/gradle-wrapper.jar`
 - Create: `backend/gradle/wrapper/gradle-wrapper.properties`
 - Modify: `backend/build.gradle.kts`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/support/PostgresIntegrationTest.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/domain/MigrationSmokeTest.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/support/PostgresIntegrationTest.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/domain/MigrationSmokeTest.kt`
 
 **Interfaces:**
 - Consumes: Docker Engine and `postgres:15.2-alpine`
@@ -184,7 +184,7 @@ Run:
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.domain.MigrationSmokeTest
+  --tests com.onyx.kotlin.domain.MigrationSmokeTest
 ```
 
 Expected: compilation fails because `PostgresIntegrationTest` does not exist.
@@ -269,12 +269,12 @@ git commit -m "test: add Kotlin backend parity harness"
 ### Task 2: 관리 API와 DB 수명주기
 
 **Files:**
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/api/AdminApiIntegrationTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/service/AdminService.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/service/FileStorageService.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/service/IngestionQueryService.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/api/ApiExceptionHandler.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/domain/Repositories.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/api/AdminApiIntegrationTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/service/AdminService.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/service/FileStorageService.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/service/IngestionQueryService.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/api/ApiExceptionHandler.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/domain/Repositories.kt`
 - Modify: `backend/PYTHON_PARITY.md`
 
 **Interfaces:**
@@ -303,7 +303,7 @@ Assert HTTP status, response body, repository counts, and queued job counts in e
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.api.AdminApiIntegrationTest
+  --tests com.onyx.kotlin.api.AdminApiIntegrationTest
 ```
 
 Expected: masked credential update fails because the current code stores the mask as the new secret.
@@ -372,8 +372,8 @@ Replace the independent name list mutation with paired ID/name records before fi
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests 'com.onyx.foss.kotlin.api.*' \
-  --tests 'com.onyx.foss.kotlin.service.*'
+  --tests 'com.onyx.kotlin.api.*' \
+  --tests 'com.onyx.kotlin.service.*'
 ```
 
 Expected: PASS.
@@ -390,13 +390,13 @@ git commit -m "fix: align Kotlin management lifecycle"
 ### Task 3: Batch, checkpoint, failure, ACL domain
 
 **Files:**
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/ConnectorModels.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/ConnectorModelsTest.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/ConnectorModels.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/ConnectorModelsTest.kt`
 - Create: `backend/src/main/resources/db/migration/V2__ingestion_parity_and_permissions.sql`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/domain/SchemaV2IntegrationTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/domain/Domain.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/domain/Repositories.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionWorker.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/domain/SchemaV2IntegrationTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/domain/Domain.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/domain/Repositories.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionWorker.kt`
 
 **Interfaces:**
 - Produces: `ExternalAccess`, `ConnectorFailure`, `ConnectorCheckpoint`, `ConnectorBatch`, expanded `SourceDocument`
@@ -417,7 +417,7 @@ Assert document and entity failures retain only their typed target fields.
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.ingestion.ConnectorModelsTest
+  --tests com.onyx.kotlin.ingestion.ConnectorModelsTest
 ```
 
 Expected: types do not exist.
@@ -518,14 +518,14 @@ git commit -m "feat: add connector batch and permission models"
 ### Task 4: Batch 수집, 상태 복구, pruning
 
 **Files:**
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionWorker.kt`
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/PruningService.kt`
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionScheduler.kt`
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteJsonClient.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteConnectorLoaders.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/IngestionProcessorIntegrationTest.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/PruningServiceTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/domain/Repositories.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionWorker.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/PruningService.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionScheduler.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteJsonClient.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteConnectorLoaders.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/IngestionProcessorIntegrationTest.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/PruningServiceTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/domain/Repositories.kt`
 - Modify: `backend/PYTHON_PARITY.md`
 
 **Interfaces:**
@@ -551,7 +551,7 @@ Assert attempt, job, pair, checkpoint, document, and error rows.
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.ingestion.IngestionProcessorIntegrationTest
+  --tests com.onyx.kotlin.ingestion.IngestionProcessorIntegrationTest
 ```
 
 Expected: current processor accepts a `List`, marks all prior errors resolved, and cannot represent partial success.
@@ -649,10 +649,10 @@ git commit -m "feat: process connector batches safely"
 ### Task 5: File 커넥터 동작
 
 **Files:**
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/FileConnectorLoader.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/FileConnectorLoaderTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionWorker.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/service/FileStorageService.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/FileConnectorLoader.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/FileConnectorLoaderTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionWorker.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/service/FileStorageService.kt`
 - Modify: `backend/PYTHON_PARITY.md`
 
 **Interfaces:**
@@ -699,8 +699,8 @@ Keep non-tabular metadata unchanged.
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.ingestion.FileConnectorLoaderTest \
-  --tests com.onyx.foss.kotlin.api.AdminApiIntegrationTest
+  --tests com.onyx.kotlin.ingestion.FileConnectorLoaderTest \
+  --tests com.onyx.kotlin.api.AdminApiIntegrationTest
 ```
 
 Expected: PASS.
@@ -717,10 +717,10 @@ git commit -m "feat: complete Kotlin file connector behavior"
 ### Task 6: Jira 커넥터 동작
 
 **Files:**
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/JiraConnectorLoader.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/JiraConnectorLoaderTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteConnectorLoaders.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteJsonClient.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/JiraConnectorLoader.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/JiraConnectorLoaderTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteConnectorLoaders.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteJsonClient.kt`
 - Modify: `backend/PYTHON_PARITY.md`
 
 **Interfaces:**
@@ -790,7 +790,7 @@ Keep group IDs unprefixed for permission sync output and prefixed where the Pyth
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.ingestion.JiraConnectorLoaderTest
+  --tests com.onyx.kotlin.ingestion.JiraConnectorLoaderTest
 ```
 
 Expected: PASS.
@@ -807,10 +807,10 @@ git commit -m "feat: complete Kotlin Jira connector behavior"
 ### Task 7: Confluence 커넥터 동작
 
 **Files:**
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/ConfluenceConnectorLoader.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/ConfluenceConnectorLoaderTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteConnectorLoaders.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteJsonClient.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/ConfluenceConnectorLoader.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/ConfluenceConnectorLoaderTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteConnectorLoaders.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteJsonClient.kt`
 - Modify: `backend/PYTHON_PARITY.md`
 
 **Interfaces:**
@@ -893,7 +893,7 @@ Use private empty access when Python cannot determine a document's permissions s
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.ingestion.ConfluenceConnectorLoaderTest
+  --tests com.onyx.kotlin.ingestion.ConfluenceConnectorLoaderTest
 ```
 
 Expected: PASS.
@@ -910,10 +910,10 @@ git commit -m "feat: complete Kotlin Confluence connector behavior"
 ### Task 8: GitHub 커넥터 동작
 
 **Files:**
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/GithubConnectorLoader.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/GithubConnectorLoaderTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteConnectorLoaders.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/RemoteJsonClient.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/GithubConnectorLoader.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/GithubConnectorLoaderTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteConnectorLoaders.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/RemoteJsonClient.kt`
 - Modify: `backend/PYTHON_PARITY.md`
 
 **Interfaces:**
@@ -966,7 +966,7 @@ Preserve permission data on PRs, issues, and files.
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.ingestion.GithubConnectorLoaderTest
+  --tests com.onyx.kotlin.ingestion.GithubConnectorLoaderTest
 ```
 
 Expected: PASS.
@@ -983,12 +983,12 @@ git commit -m "feat: complete Kotlin GitHub connector behavior"
 ### Task 9: Full document permission sync
 
 **Files:**
-- Create: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/PermissionSyncWorker.kt`
-- Create: `backend/src/test/kotlin/com/onyx/foss/kotlin/ingestion/PermissionSyncIntegrationTest.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/api/AdminController.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/service/IngestionQueryService.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/ingestion/IngestionWorker.kt`
-- Modify: `backend/src/main/kotlin/com/onyx/foss/kotlin/domain/Repositories.kt`
+- Create: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/PermissionSyncWorker.kt`
+- Create: `backend/src/test/kotlin/com/onyx/kotlin/ingestion/PermissionSyncIntegrationTest.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/api/AdminController.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/service/IngestionQueryService.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/ingestion/IngestionWorker.kt`
+- Modify: `backend/src/main/kotlin/com/onyx/kotlin/domain/Repositories.kt`
 - Modify: `backend/PYTHON_PARITY.md`
 
 **Interfaces:**
@@ -1054,7 +1054,7 @@ The partial unique index prevents a second active permission attempt for the sam
 ```bash
 cd backend
 JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test \
-  --tests com.onyx.foss.kotlin.ingestion.PermissionSyncIntegrationTest
+  --tests com.onyx.kotlin.ingestion.PermissionSyncIntegrationTest
 ```
 
 Expected: PASS.
