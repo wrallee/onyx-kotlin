@@ -207,6 +207,7 @@ class IngestionProcessor(
                 completeEnumeration,
                 beforeDelete = { renew(claim) },
             )
+            renew(claim)
             if (attempt.fromBeginning && completeEnumeration) {
                 val errorsToResolve = (
                     errors.findPriorUnresolvedByCcPairId(requireNotNull(pair.id), attemptId) +
@@ -214,7 +215,7 @@ class IngestionProcessor(
                 )
                     .onEach { it.isResolved = true }
                 errors.saveAll(errorsToResolve)
-            } else if (!hasFailures) {
+            } else if (!attempt.fromBeginning && !hasFailures) {
                 val resolvedEntityErrors = errors.findUnresolvedEntityErrorsByCcPairId(requireNotNull(pair.id))
                     .onEach { it.isResolved = true }
                 errors.saveAll(resolvedEntityErrors)

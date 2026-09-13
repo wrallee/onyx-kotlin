@@ -116,7 +116,7 @@ timezone: Asia/Seoul
 - action: Python과 같은 오류 재색인 및 해결 규칙을 Kotlin에 적용한다.
 - done_when: 성공, 삭제, 재실패와 불완전 열거 시나리오가 통합 테스트를 통과한다.
 - last_checked_at: 2026-09-11T22:44:02+09:00
-- result: Confluence targeted reindex와 완전한 full reindex의 과거 오류 정리를 구현했다. 삭제 문서는 색인과 DB에서 제거하며 재실패와 불완전 열거 오류는 보존한다. 단위 테스트 344개와 OpenSearch 통합 테스트 9개가 통과했다.
+- result: 완전한 전체 재색인에서 과거 오류를 정리하도록 구현했다. 삭제 문서는 색인과 DB에서 제거하며 재실패와 불완전 열거 오류는 보존한다. 단위 테스트 344개와 OpenSearch 통합 테스트 9개가 통과했다.
 
 ### WL-20260903-001 - OpenSearch 검색 응답 버퍼 한도 임시 상향
 - status: dropped

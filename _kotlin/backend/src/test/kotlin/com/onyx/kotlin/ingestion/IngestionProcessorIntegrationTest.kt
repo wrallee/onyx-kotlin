@@ -336,16 +336,23 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
-    fun incompleteFullReindexKeepsPriorErrors() {
+    fun incompleteFullReindexKeepsPriorDocumentAndEntityErrors() {
         val run = createRun(fromBeginning = true)
         val priorAttempt = attempts.save(
             IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS),
         )
-        val priorError = errors.save(
+        val priorDocumentError = errors.save(
             IngestionErrorEntity(
                 attemptId = requireNotNull(priorAttempt.id),
                 sourceDocumentId = "unseen",
                 failureMessage = "old failure",
+            ),
+        )
+        val priorEntityError = errors.save(
+            IngestionErrorEntity(
+                attemptId = requireNotNull(priorAttempt.id),
+                entityId = "space-1",
+                failureMessage = "old entity failure",
             ),
         )
         load(
@@ -359,7 +366,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
 
         processor.process(run.jobId)
 
-        assertThat(errors.findById(requireNotNull(priorError.id)).orElseThrow().isResolved).isFalse()
+        assertThat(errors.findById(requireNotNull(priorDocumentError.id)).orElseThrow().isResolved).isFalse()
+        assertThat(errors.findById(requireNotNull(priorEntityError.id)).orElseThrow().isResolved).isFalse()
     }
 
     @Test
@@ -391,6 +399,55 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         processor.process(reclaimedClaim)
 
         assertThat(errors.findById(requireNotNull(existingError.id)).orElseThrow().isResolved).isTrue()
+    }
+
+    @Test
+    fun reclaimedJobStopsStaleWorkerBeforeResolvingErrors() {
+        val run = createRun(fromBeginning = true)
+        val priorAttempt = attempts.save(
+            IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS),
+        )
+        val priorError = errors.save(
+            IngestionErrorEntity(
+                attemptId = requireNotNull(priorAttempt.id),
+                sourceDocumentId = "obsolete",
+                failureMessage = "old failure",
+            ),
+        )
+        saveDocument(run.pairId, "obsolete")
+        load(sequenceOf(batch(1, false)))
+        val oldClaim = requireNotNull(claims.claimNext())
+        val pruningStarted = CountDownLatch(1)
+        val releasePruning = CountDownLatch(1)
+        doAnswer {
+            pruningStarted.countDown()
+            check(releasePruning.await(10, TimeUnit.SECONDS))
+            Unit
+        }.`when`(indexer).deleteDocuments(run.pairId, setOf("obsolete"))
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val staleWorker = executor.submit { processor.process(oldClaim) }
+            assertThat(pruningStarted.await(10, TimeUnit.SECONDS)).isTrue()
+            jdbc.update(
+                "UPDATE ingestion_jobs SET lease_expires_at = ? WHERE id = ?",
+                Instant.now().minusSeconds(1),
+                run.jobId,
+            )
+            jdbc.update(
+                "UPDATE connector_credential_pairs SET ingestion_lease_expires_at = ? WHERE id = ?",
+                Instant.now().minusSeconds(1),
+                run.pairId,
+            )
+            assertThat(requireNotNull(claims.claimNext()).token).isNotEqualTo(oldClaim.token)
+            releasePruning.countDown()
+            staleWorker.get(10, TimeUnit.SECONDS)
+        } finally {
+            releasePruning.countDown()
+            executor.shutdownNow()
+        }
+
+        assertThat(errors.findById(requireNotNull(priorError.id)).orElseThrow().isResolved).isFalse()
+        assertThat(jobs.findById(run.jobId).orElseThrow().state).isEqualTo(JobState.RUNNING)
     }
 
     @Test
