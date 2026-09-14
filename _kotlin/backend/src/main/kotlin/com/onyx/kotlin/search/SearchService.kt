@@ -108,52 +108,19 @@ class SearchService(
         ).map { idToItem.getValue(it) }
     }
 
-    fun <T> collapseAdjacentChunks(
+    fun <T> collapseDuplicateChunks(
         rankedResults: List<T>,
         documentIdExtractor: (T) -> String?,
         chunkIdExtractor: (T) -> Int?,
     ): List<T> {
         if (rankedResults.size < 2) return rankedResults
 
-        data class RankedChunk<T>(val rank: Int, val item: T, val chunkId: Int)
-
-        val identifiable = linkedMapOf<String, MutableList<RankedChunk<T>>>()
-        val keepRanks = mutableSetOf<Int>()
-
-        rankedResults.forEachIndexed { rank, item ->
+        val seen = mutableSetOf<Pair<String, Int>>()
+        return rankedResults.filter { item ->
             val documentId = documentIdExtractor(item)?.takeIf(String::isNotBlank)
             val chunkId = chunkIdExtractor(item)?.takeIf { it >= 0 }
-            if (documentId == null || chunkId == null) {
-                keepRanks += rank
-            } else {
-                identifiable.getOrPut(documentId) { mutableListOf() }
-                    .add(RankedChunk(rank, item, chunkId))
-            }
+            documentId == null || chunkId == null || seen.add(documentId to chunkId)
         }
-
-        identifiable.values.forEach { chunks ->
-            val sorted = chunks.sortedWith(compareBy<RankedChunk<T>> { it.chunkId }.thenBy { it.rank })
-            var run = mutableListOf<RankedChunk<T>>()
-            var previousChunkId: Int? = null
-
-            fun keepRun() {
-                if (run.isNotEmpty()) {
-                    keepRanks += run.minOf { it.rank }
-                    run = mutableListOf()
-                }
-            }
-
-            sorted.forEach { chunk ->
-                if (previousChunkId != null && chunk.chunkId > previousChunkId + 1) {
-                    keepRun()
-                }
-                run += chunk
-                previousChunkId = chunk.chunkId
-            }
-            keepRun()
-        }
-
-        return rankedResults.filterIndexed { rank, _ -> rank in keepRanks }
     }
 
     @JvmOverloads

@@ -128,7 +128,7 @@ class McpSearchTool(
             idExtractor = { item -> extractItemId(item) },
             k = k,
         )
-        val merged = search.collapseAdjacentChunks(
+        val merged = search.collapseDuplicateChunks(
             fused,
             documentIdExtractor = ::extractDocumentId,
             chunkIdExtractor = ::extractChunkId,
