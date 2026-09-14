@@ -77,6 +77,7 @@ class OpenSearchIndexerTest {
             val keyword = mapper.readTree(server.takeRequest().body.readUtf8())
             val vector = mapper.readTree(server.takeRequest().body.readUtf8())
             assertThat(keyword.path("size").asInt()).isEqualTo(30)
+            assertThat(keyword.path("collapse").path("field").asString()).isEqualTo("source_chunk_id")
             assertThat(keyword.path("query").path("bool").path("filter").first()
                 .path("bool").path("filter").first().path("terms").path("document_sets")
                 .toList().map { it.asString() })
@@ -85,6 +86,9 @@ class OpenSearchIndexerTest {
                 .path("bool").path("filter").first().path("terms").path("document_sets")
                 .toList().map { it.asString() }
             assertThat(vectorFilter).containsExactly("Engineering", "Operations")
+            assertThat(vector.path("size").asInt()).isEqualTo(30)
+            assertThat(vector.path("query").path("knn").path("embedding").path("k").asInt()).isEqualTo(150)
+            assertThat(vector.path("collapse").path("field").asString()).isEqualTo("source_chunk_id")
             assertThat(keywordResults.single().id).isEqualTo("keyword")
             assertThat(vectorResults.single().id).isEqualTo("vector")
         }
@@ -168,7 +172,7 @@ class OpenSearchIndexerTest {
                 assertThat(hybrid.path("pagination_depth").asInt()).isEqualTo(56)
                 assertThat(hybrid.path("queries").get(1).path("knn").path("embedding").path("k").asInt())
                     .isEqualTo(56)
-                assertThat(body.path("collapse").path("field").asString()).isEqualTo("source_document_id")
+                assertThat(body.path("collapse").path("field").asString()).isEqualTo("source_chunk_id")
                 assertThat(body.has("sort")).isFalse()
                 assertThat(hybrid.path("filter").path("bool").path("filter").first()
                     .path("terms").path("document_sets").toList().map { it.asString() })
@@ -263,6 +267,7 @@ class OpenSearchIndexerTest {
             assertThat(properties.properties().map { it.key }).containsExactlyInAnyOrder(
                 "cc_pair_id",
                 "source_document_id",
+                "source_chunk_id",
                 "chunk_id",
                 "title",
                 "content",
@@ -311,6 +316,7 @@ class OpenSearchIndexerTest {
             val request = takeOperationRequest(server)
             val body = mapper.readTree(request.body.readUtf8())
             assertThat(body.path("source_type").asString()).isEqualTo("jira")
+            assertThat(body.path("source_chunk_id").asString()).isEqualTo("one:0")
         }
     }
 
@@ -468,6 +474,7 @@ class OpenSearchIndexerTest {
             assertThat(mapping.path("properties").path("title").path("analyzer").asString()).isEqualTo("nori")
             assertThat(mapping.path("properties").path("content").path("analyzer").asString()).isEqualTo("nori")
             assertThat(mapping.path("properties").path("embedding").path("dimension").asInt()).isEqualTo(768)
+            assertThat(mapping.path("properties").path("source_chunk_id").path("type").asString()).isEqualTo("keyword")
             assertThat(mapping.path("properties").path("doc_updated_at").path("type").asString()).isEqualTo("date")
             assertThat(mapping.path("properties").path("primary_owners").path("type").asString()).isEqualTo("keyword")
             assertThat(mapping.path("properties").path("secondary_owners").path("type").asString()).isEqualTo("keyword")

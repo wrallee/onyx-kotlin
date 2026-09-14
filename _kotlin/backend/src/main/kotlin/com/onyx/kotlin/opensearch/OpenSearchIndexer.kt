@@ -105,6 +105,7 @@ class OpenSearchIndexer(
                     b
                 }
             })
+            .collapse { collapse -> collapse.field(SOURCE_CHUNK_ID_FIELD) }
             .build()
 
         return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
@@ -125,17 +126,19 @@ class OpenSearchIndexer(
         }
         require(count > 0) { "count must be positive" }
         ensureIndex()
+        val candidateCount = Math.multiplyExact(count, searchProperties.hybridCandidateMultiplier)
 
         val knn = KnnQuery.Builder()
             .field(EMBEDDING_FIELD)
             .vector(queryEmbedding.map { it.toFloat() })
-            .k(count)
+            .k(candidateCount)
         searchFilter(documentSets, sourceTypes, updatedAfter)?.let { knn.filter(it) }
 
         val request = OpenSearchSearchRequest.Builder()
             .index(properties.indexName)
             .size(count)
             .query(Query.of { q -> q.knn(knn.build()) })
+            .collapse { collapse -> collapse.field(SOURCE_CHUNK_ID_FIELD) }
             .build()
 
         return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
@@ -191,7 +194,7 @@ class OpenSearchIndexer(
             .size(limit)
             .searchPipeline(registry.selectedPipelineId())
             .query(hybridQuery)
-            .collapse { collapse -> collapse.field(EXACT_DOCUMENT_ID_FIELD) }
+            .collapse { collapse -> collapse.field(SOURCE_CHUNK_ID_FIELD) }
             .build()
 
         return client.search(request, OpenSearchChunkDocument::class.java).hits().hits().mapNotNull { hit ->
@@ -426,6 +429,7 @@ class OpenSearchIndexer(
         val doc = OpenSearchChunkDocument(
             ccPairId = pairId,
             sourceDocumentId = sourceDocumentId,
+            sourceChunkId = "$sourceDocumentId:$chunkId",
             chunkId = chunkId,
             title = title,
             content = content,
@@ -523,6 +527,7 @@ class OpenSearchIndexer(
 
     companion object {
         const val EXACT_DOCUMENT_ID_FIELD = "source_document_id"
+        const val SOURCE_CHUNK_ID_FIELD = "source_chunk_id"
         const val EMBEDDING_FIELD = "embedding"
     }
 
@@ -546,6 +551,7 @@ class OpenSearchIndexer(
         "properties" to mapOf(
             "cc_pair_id" to mapOf("type" to "long"),
             EXACT_DOCUMENT_ID_FIELD to mapOf("type" to "keyword"),
+            SOURCE_CHUNK_ID_FIELD to mapOf("type" to "keyword"),
             "chunk_id" to mapOf("type" to "integer"),
             "title" to mapOf(
                 "type" to "text",

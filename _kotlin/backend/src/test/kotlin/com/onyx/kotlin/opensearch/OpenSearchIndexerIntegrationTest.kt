@@ -97,6 +97,8 @@ class OpenSearchIndexerIntegrationTest {
         val mapping = get("/$index/_mapping")
         assertThat(mapping.path(index).path("mappings").path("properties").path("source_document_id").path("type").asString())
             .isEqualTo("keyword")
+        assertThat(mapping.path(index).path("mappings").path("properties").path("source_chunk_id").path("type").asString())
+            .isEqualTo("keyword")
         assertThat(mapping.path(index).path("mappings").path("properties").path("doc_updated_at").path("type").asString())
             .isEqualTo("date")
         assertThat(mapping.path(index).path("mappings").path("properties").path("primary_owners").path("type").asString())
@@ -146,9 +148,11 @@ class OpenSearchIndexerIntegrationTest {
     }
 
     @Test
-    fun keywordAndVectorSearchUseTheUnionOfSelectedDocumentSets() {
+    fun keywordAndVectorSearchUseSelectedDocumentSetsAndCollapseOnlyDuplicateLogicalChunks() {
         val indexer = indexer()
         indexer.upsert(7, "engineering", 0, "Guide", "deployment needle", null, emptyMap(), vector(0.1), listOf("Engineering"))
+        indexer.upsert(9, "engineering", 0, "Guide Copy", "deployment needle", null, emptyMap(), vector(0.1), listOf("Engineering"))
+        indexer.upsert(7, "engineering", 1, "Guide", "deployment needle adjacent", null, emptyMap(), vector(0.1), listOf("Engineering"))
         indexer.upsert(7, "operations", 0, "Guide", "deployment needle", null, emptyMap(), vector(0.2), listOf("Operations"))
         indexer.upsert(7, "finance", 0, "Guide", "deployment needle", null, emptyMap(), vector(0.3), listOf("Finance"))
 
@@ -163,17 +167,21 @@ class OpenSearchIndexerIntegrationTest {
             10,
         )
 
-        assertThat(keyword.map(SearchCandidate::sourceDocumentId))
-            .containsExactlyInAnyOrder("engineering", "operations")
-        assertThat(vector.map(SearchCandidate::sourceDocumentId))
-            .containsExactlyInAnyOrder("engineering", "operations")
+        val expected = arrayOf(
+            "engineering" to 0,
+            "engineering" to 1,
+            "operations" to 0,
+        )
+        assertThat(keyword.map { it.sourceDocumentId to it.chunkId }).containsExactlyInAnyOrder(*expected)
+        assertThat(vector.map { it.sourceDocumentId to it.chunkId }).containsExactlyInAnyOrder(*expected)
     }
 
     @Test
-    fun nativeHybridSearchCreatesPipelinesAndCollapsesChunksByDocument() {
+    fun nativeHybridSearchCreatesPipelinesAndCollapsesOnlyDuplicateLogicalChunks() {
         val writer = indexer()
         writer.upsert(7, "engineering-a", 0, "Deployment Guide", "deployment needle alpha", null, emptyMap(), vector(0.1), listOf("Engineering"))
-        writer.upsert(7, "engineering-a", 1, "Unrelated", "unrelated text", null, emptyMap(), vector(0.1), listOf("Engineering"))
+        writer.upsert(7, "engineering-a", 1, "Deployment Guide", "deployment needle adjacent", null, emptyMap(), vector(0.1), listOf("Engineering"))
+        writer.upsert(9, "engineering-a", 0, "Deployment Guide Copy", "deployment needle alpha", null, emptyMap(), vector(0.1), listOf("Engineering"))
         writer.upsert(7, "engineering-b", 0, "Deployment Guide", "deployment needle beta", null, emptyMap(), vector(0.2), listOf("Engineering"))
         writer.upsert(7, "finance", 0, "Deployment Guide", "deployment needle finance", null, emptyMap(), vector(0.3), listOf("Finance"))
 
@@ -182,12 +190,15 @@ class OpenSearchIndexerIntegrationTest {
             query = "deployment needle",
             queryEmbedding = vector(0.1),
             documentSets = listOf("Engineering"),
-            limit = 3,
+            limit = 5,
         )
 
-        assertThat(results.map(SearchCandidate::sourceDocumentId))
-            .containsExactlyInAnyOrder("engineering-a", "engineering-b")
-        assertThat(results.single { it.sourceDocumentId == "engineering-a" }.chunkId).isZero()
+        assertThat(results.map { it.sourceDocumentId to it.chunkId })
+            .containsExactlyInAnyOrder(
+                "engineering-a" to 0,
+                "engineering-a" to 1,
+                "engineering-b" to 0,
+            )
         assertThat(results.mapNotNull(SearchCandidate::retrievalScore)).isSortedAccordingTo(reverseOrder())
 
         val minMaxId = "$index-hybrid-min-max"
@@ -223,6 +234,7 @@ class OpenSearchIndexerIntegrationTest {
         assertThat(mapping.path("dynamic").asString()).isEqualTo("strict")
         assertThat(mapping.path("properties").path("title").path("analyzer").asString()).isEqualTo("nori")
         assertThat(mapping.path("properties").path("content").path("analyzer").asString()).isEqualTo("nori")
+        assertThat(mapping.path("properties").path("source_chunk_id").path("type").asString()).isEqualTo("keyword")
         val document = exactDocuments("legacy-document").single()
         assertThat(document.path("content").asString()).isEqualTo("legacy content")
         assertThat(document.path("document_sets").toList().map(JsonNode::asString)).containsExactly("Engineering")

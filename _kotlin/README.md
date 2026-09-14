@@ -110,9 +110,14 @@ The `search` tool accepts an optional `document_set_names` array. It searches th
 union of those sets and returns metadata with a short excerpt and opaque `id`.
 Pass that `id` to `get_document_context` to read the same indexed copy. The
 tools return each JSON payload once as MCP text content. The default limit is 30.
-Hybrid search retrieves five times the requested limit before OpenSearch
-normalizes and collapses results by document. Set
-`ONYX_SEARCH_CANDIDATE_MULTIPLIER` to change that multiplier.
+Semantic and hybrid search retrieve five times the requested limit before
+OpenSearch returns one result per logical chunk. A logical chunk combines
+`source_document_id` and `chunk_id`, so copies from different connector pairs
+collapse while adjacent chunks remain. Set `ONYX_SEARCH_CANDIDATE_MULTIPLIER`
+to change the candidate multiplier.
+
+Run a full connector reindex once after this change. Existing chunks do not
+contain `source_chunk_id` and cannot collapse until they are reindexed.
 
 The MCP endpoint has no authentication in this development version. Do not
 expose it beyond the intended private environment until authentication exists.

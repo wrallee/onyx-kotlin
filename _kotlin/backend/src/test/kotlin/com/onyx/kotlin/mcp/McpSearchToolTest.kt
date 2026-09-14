@@ -264,7 +264,7 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `fusion tool uses server defaults and collapses adjacent chunks`() {
+    fun `fusion tool collapses duplicate logical chunks and preserves adjacent chunks`() {
         val realSearch = SearchService(
             SearchProperties(rrfK = 73),
             mock(ModelServerClient::class.java),
@@ -273,18 +273,20 @@ class McpSearchToolTest {
         )
         val fusionTool = McpSearchTool(realSearch, jacksonObjectMapper())
         val list1 = listOf(
-            mapOf("sourceDocumentId" to "doc-1", "chunkId" to 0, "title" to "Doc 1A"),
-            mapOf("sourceDocumentId" to "doc-2", "chunkId" to 0, "title" to "Doc 2"),
+            mapOf("id" to "pair-7-doc-1-0", "sourceDocumentId" to "doc-1", "chunkId" to 0, "title" to "Doc 1A"),
+            mapOf("id" to "pair-7-doc-2-0", "sourceDocumentId" to "doc-2", "chunkId" to 0, "title" to "Doc 2"),
         )
         val list2 = listOf(
-            mapOf("sourceDocumentId" to "doc-1", "chunkId" to 1, "title" to "Doc 1B"),
-            mapOf("sourceDocumentId" to "doc-3", "chunkId" to 0, "title" to "Doc 3"),
+            mapOf("id" to "pair-9-doc-1-0", "sourceDocumentId" to "doc-1", "chunkId" to 0, "title" to "Duplicate"),
+            mapOf("id" to "pair-9-doc-1-1", "sourceDocumentId" to "doc-1", "chunkId" to 1, "title" to "Doc 1B"),
         )
 
         val result = fusionTool.callFusion(mapOf("ranked_results" to listOf(list1, list2)))
 
+        val content = jacksonObjectMapper().readTree((result.content().single() as McpSchema.TextContent).text())
         assertThat(result.isError() == true).isFalse()
-        assertThat(result.content()).isNotEmpty()
+        assertThat(content.path("results").toList().map { it.path("title").asString() })
+            .containsExactly("Doc 1A", "Doc 2", "Doc 1B")
     }
 
     @Test

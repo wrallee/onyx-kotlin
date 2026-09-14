@@ -151,26 +151,28 @@ class SearchServiceTest {
     }
 
     @Test
-    fun `collapse adjacent chunks keeps best ranked member of each run`() {
+    fun `collapse duplicate chunks keeps the first copy and preserves adjacent chunks`() {
         data class Item(val doc: String?, val chunk: Int?)
         val ranked = listOf(
             Item("A", 8),
             Item("B", 0),
             Item("A", 7),
+            Item("A", 8),
             Item("A", 9),
-            Item("A", 20),
-            Item("B", 2),
             Item(null, null),
+            Item("B", 0),
+            Item("A", -1),
         )
 
-        val collapsed = service.collapseAdjacentChunks(ranked, Item::doc, Item::chunk)
+        val collapsed = service.collapseDuplicateChunks(ranked, Item::doc, Item::chunk)
 
         assertThat(collapsed).containsExactly(
             Item("A", 8),
             Item("B", 0),
-            Item("A", 20),
-            Item("B", 2),
+            Item("A", 7),
+            Item("A", 9),
             Item(null, null),
+            Item("A", -1),
         )
     }
 

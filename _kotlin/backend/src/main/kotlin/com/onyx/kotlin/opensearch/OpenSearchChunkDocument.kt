@@ -12,6 +12,7 @@ import tools.jackson.databind.annotation.JsonNaming
 data class OpenSearchChunkDocument(
     val ccPairId: Long? = null,
     val sourceDocumentId: String? = null,
+    val sourceChunkId: String? = null,
     val chunkId: Int? = null,
     val title: String? = null,
     val content: String? = null,
@@ -31,6 +32,7 @@ data class OpenSearchChunkDocument(
         val meta = mutableMapOf<String, Any>()
         ccPairId?.let { meta["cc_pair_id"] = it }
         meta["source_document_id"] = sourceDocumentId ?: ""
+        sourceChunkId?.let { meta["source_chunk_id"] = it }
         meta["chunk_id"] = chunkId ?: 0
         meta["title"] = title ?: ""
         link?.let { meta["link"] = it }
@@ -75,11 +77,15 @@ data class OpenSearchChunkDocument(
     companion object {
         fun fromSpringAiDocument(doc: Document, embedding: List<Double>? = null): OpenSearchChunkDocument {
             val meta = doc.metadata
+            val sourceDocumentId = meta["source_document_id"] as? String
+            val chunkId = (meta["chunk_id"] as? Number)?.toInt()
             @Suppress("UNCHECKED_CAST")
             return OpenSearchChunkDocument(
                 ccPairId = (meta["cc_pair_id"] as? Number)?.toLong(),
-                sourceDocumentId = meta["source_document_id"] as? String,
-                chunkId = (meta["chunk_id"] as? Number)?.toInt(),
+                sourceDocumentId = sourceDocumentId,
+                sourceChunkId = meta["source_chunk_id"] as? String
+                    ?: if (sourceDocumentId != null && chunkId != null) "$sourceDocumentId:$chunkId" else null,
+                chunkId = chunkId,
                 title = meta["title"] as? String,
                 content = doc.text,
                 link = meta["link"] as? String,
