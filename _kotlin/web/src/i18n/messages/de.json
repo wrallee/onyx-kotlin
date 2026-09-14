@@ -615,6 +615,9 @@
           "label": "Wissensbasis & Wikis"
         }
       },
+      "available": {
+        "title": "Verfügbar"
+      },
       "popular": {
         "title": "Beliebt"
       },

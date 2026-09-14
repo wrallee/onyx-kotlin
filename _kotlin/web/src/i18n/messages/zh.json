@@ -615,6 +615,9 @@
           "label": "知识库与 Wiki"
         }
       },
+      "available": {
+        "title": "可用"
+      },
       "popular": {
         "title": "热门"
       },

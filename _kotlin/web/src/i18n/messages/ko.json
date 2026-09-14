@@ -615,6 +615,9 @@
           "label": "지식 베이스 및 위키"
         }
       },
+      "available": {
+        "title": "사용 가능"
+      },
       "popular": {
         "title": "인기"
       },

@@ -615,6 +615,9 @@
           "label": "Bases de connaissances et wikis"
         }
       },
+      "available": {
+        "title": "Disponibles"
+      },
       "popular": {
         "title": "Populaires"
       },

@@ -9,7 +9,6 @@ interface SourceTileProps {
   sourceMetadata: SourceMetadata;
   preSelect?: boolean;
   navigationUrl: string;
-  hasExistingSlackCredentials: boolean;
 }
 
 export default function SourceTile({

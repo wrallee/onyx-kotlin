@@ -615,6 +615,9 @@
           "label": "ナレッジベース・Wiki"
         }
       },
+      "available": {
+        "title": "利用可能"
+      },
       "popular": {
         "title": "人気"
       },
