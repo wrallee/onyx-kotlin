@@ -46,3 +46,33 @@ def test_embed_contract_with_fake_runtime(monkeypatch, client: TestClient) -> No
     assert response.status_code == 200
     assert response.json() == {"embeddings": [[1.0, 0.0], [1.0, 0.0]]}
 
+
+def test_chunk_and_embed_contract_with_fake_runtime(monkeypatch, client: TestClient) -> None:
+    monkeypatch.setattr(
+        embedding_runtime,
+        "chunk_and_embed",
+        lambda request: [(request.text, [1.0, 0.0], 12)],
+    )
+
+    response = client.post(
+        "/encoder/chunk-and-embed",
+        json={
+            "text": "첫 문장입니다. 둘째 문장입니다.",
+            "title": "테스트",
+            "metadata_context": "Source: jira",
+            "model_name": embedding_runtime.settings.embedding_model_name,
+            "max_context_length": 512,
+            "normalize_embeddings": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "chunks": [
+            {
+                "content": "첫 문장입니다. 둘째 문장입니다.",
+                "embedding": [1.0, 0.0],
+                "token_count": 12,
+            }
+        ]
+    }

@@ -53,6 +53,41 @@ class SearchServiceTest {
     }
 
     @Test
+    fun `search normalizes metadata filters before retrieval`() {
+        val normalized = SearchMetadataFilters(
+            projectKeys = listOf("onyx"),
+            repositories = listOf("example/repo"),
+            statuses = listOf("in progress"),
+            documentTypes = listOf("jira_issue"),
+        )
+        `when`(
+            indexer.keywordSearch(
+                "ABC-123",
+                emptyList(),
+                10,
+                emptyList(),
+                null,
+                normalized,
+            ),
+        ).thenReturn(emptyList())
+
+        service.search(
+            "ABC-123",
+            emptyList(),
+            10,
+            SearchType.KEYWORD,
+            metadataFilters = SearchMetadataFilters(
+                projectKeys = listOf(" ONYX ", "onyx"),
+                repositories = listOf("Example/Repo"),
+                statuses = listOf("In Progress"),
+                documentTypes = listOf("JIRA_ISSUE"),
+            ),
+        )
+
+        verify(indexer).keywordSearch("ABC-123", emptyList(), 10, emptyList(), null, normalized)
+    }
+
+    @Test
     fun `semantic search embeds once and performs vector retrieval only`() {
         `when`(modelServer.embedQuery("deployment guide")).thenReturn(listOf(0.1, 0.2, 0.3))
         `when`(indexer.vectorSearch(listOf(0.1, 0.2, 0.3), emptyList(), 7, emptyList(), null))

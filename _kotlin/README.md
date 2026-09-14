@@ -106,8 +106,11 @@ directly.
 }
 ```
 
-The `search` tool accepts an optional `document_set_names` array. It searches the
-union of those sets and returns metadata with a short excerpt and opaque `id`.
+The `search` tool accepts optional document set and normalized metadata filters.
+Metadata filters cover project keys, repositories, Confluence spaces, statuses,
+and document types. Values in one filter are ORed. Different filters are ANDed.
+BM25 also searches these normalized values with a lower weight than title and content.
+It searches the union of selected document sets and returns metadata with a short excerpt and opaque `id`.
 Pass that `id` to `get_document_context` to read the same indexed copy. The
 tools return each JSON payload once as MCP text content. The default limit is 30.
 Semantic and hybrid search retrieve five times the requested limit before
@@ -116,8 +119,9 @@ OpenSearch returns one result per logical chunk. A logical chunk combines
 collapse while adjacent chunks remain. Set `ONYX_SEARCH_CANDIDATE_MULTIPLIER`
 to change the candidate multiplier.
 
-Run a full connector reindex once after this change. Existing chunks do not
-contain `source_chunk_id` and cannot collapse until they are reindexed.
+Run a full connector reindex after deployment. Existing chunks do not contain
+the new normalized metadata or token-aware contextual chunks. Metadata filters
+can omit those chunks until the reindex finishes.
 
 The MCP endpoint has no authentication in this development version. Do not
 expose it beyond the intended private environment until authentication exists.

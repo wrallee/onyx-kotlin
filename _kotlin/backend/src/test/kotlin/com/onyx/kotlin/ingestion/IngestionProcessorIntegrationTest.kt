@@ -23,6 +23,7 @@ import com.onyx.kotlin.documentset.DocumentSetPairRepository
 import com.onyx.kotlin.documentset.DocumentSetRepository
 import com.onyx.kotlin.model.ModelServerClient
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
+import com.onyx.kotlin.search.IndexedMetadata
 import com.onyx.kotlin.ingestion.IngestionAttemptEntity
 import com.onyx.kotlin.ingestion.IngestionAttemptRepository
 import com.onyx.kotlin.ingestion.IngestionCheckpointRepository
@@ -44,7 +45,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.any
-import org.mockito.Mockito.anyList
+import org.mockito.Mockito.anyString
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.doThrow
@@ -99,8 +100,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             "connector_credential_pairs", "connectors", "credentials",
         )
         doAnswer { invocation ->
-            invocation.getArgument<List<String>>(0).map { listOf(0.1) }
-        }.`when`(embedder).embed(anyList<String>())
+            listOf(ModelServerClient.ChunkEmbedding(invocation.getArgument(0), listOf(0.1), 1))
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
     }
 
     @Test
@@ -176,8 +177,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             val pair = pairs.findById(run.pairId).orElseThrow()
             pair.status = PairStatus.PAUSED
             pairs.saveAndFlush(pair)
-            listOf(listOf(0.1))
-        }.`when`(embedder).embed(anyList<String>())
+            listOf(ModelServerClient.ChunkEmbedding("one", listOf(0.1), 1))
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
         load(
             sequence {
                 yield(batch(1, true, document("one")))
@@ -631,7 +632,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
-    fun embeddingCountMismatchDoesNotReplaceOrCommitTheDocument() {
+    fun chunkingFailureDoesNotReplaceOrCommitTheDocument() {
         val run = createRun()
         load(
             sequenceOf(
@@ -642,13 +643,14 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
                 ),
             ),
         )
-        doReturn(listOf(listOf(0.1))).`when`(embedder).embed(anyList<String>())
+        doThrow(IllegalStateException("chunking failed"))
+            .`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
 
         processor.process(run.jobId)
 
         assertThat(documents.findByCcPairIdAndSourceDocumentId(run.pairId, "one")).isNull()
         assertThat(attempts.findById(run.attemptId).orElseThrow().status).isEqualTo(AttemptStatus.FAILED)
-        assertThat(attempts.findById(run.attemptId).orElseThrow().errorMessage).contains("embedding")
+        assertThat(attempts.findById(run.attemptId).orElseThrow().errorMessage).contains("chunking")
         verifyNoInteractions(indexer)
     }
 
@@ -742,6 +744,64 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
+    fun modelServerChunksAndNormalizedMetadataReachOpenSearch() {
+        val pollStart = Instant.parse("2026-08-01T00:00:00Z")
+        val pollEnd = Instant.parse("2026-09-01T00:00:00Z")
+        val run = createRun(
+            source = ConnectorSource.JIRA,
+            pollRangeStart = pollStart,
+            pollRangeEnd = pollEnd,
+        )
+        val title = AtomicReference<String>()
+        val context = AtomicReference<String>()
+        doAnswer { invocation ->
+            title.set(invocation.getArgument(1))
+            context.set(invocation.getArgument(2))
+            listOf(
+                ModelServerClient.ChunkEmbedding("first sentence.", listOf(0.1), 20),
+                ModelServerClient.ChunkEmbedding("second sentence.", listOf(0.2), 21),
+            )
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+        doReturn(
+            sequenceOf(
+                batch(
+                    1,
+                    false,
+                    SourceDocument(
+                        id = "ABC-123",
+                        title = "ABC-123 Deploy safely",
+                        content = "first sentence. second sentence.",
+                        metadata = mapOf("project" to "ABC", "status" to "In Progress"),
+                    ),
+                ),
+            ),
+        ).`when`(remoteLoaders).load(
+            ConnectorSource.JIRA,
+            mapper.createObjectNode(),
+            mapper.createObjectNode(),
+            null,
+            pollStart,
+            pollEnd,
+        )
+
+        processor.process(run.jobId)
+
+        assertThat(title.get()).isEqualTo("ABC-123 Deploy safely")
+        assertThat(context.get()).contains(
+            "Source: jira",
+            "Document type: jira_issue",
+            "Project: abc",
+            "Status: in progress",
+        )
+        val writes = mockingDetails(indexer).invocations.filter { it.method.name == "upsert" }
+        assertThat(writes.map { it.arguments[4] }).containsExactly("first sentence.", "second sentence.")
+        assertThat(writes.map { it.arguments[13] }).containsOnly(
+            IndexedMetadata(projectKey = "abc", status = "in progress", documentType = "jira_issue"),
+        )
+        verify(indexer).deleteStaleChunks(run.pairId, "ABC-123", 2)
+    }
+
+    @Test
     fun concurrentClaimsReturnOneJobId() {
         val run = createRun()
         val start = CountDownLatch(1)
@@ -794,8 +854,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         doAnswer {
             embeddingStarted.countDown()
             check(releaseEmbedding.await(10, TimeUnit.SECONDS))
-            listOf(listOf(0.1))
-        }.`when`(embedder).embed(anyList<String>())
+            listOf(ModelServerClient.ChunkEmbedding("one", listOf(0.1), 1))
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
         val executor = Executors.newSingleThreadExecutor()
         lateinit var reclaimed: IngestionClaim
         try {
@@ -866,8 +926,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         doAnswer {
             embeddingStarted.countDown()
             check(releaseEmbedding.await(10, TimeUnit.SECONDS))
-            listOf(listOf(0.1))
-        }.`when`(embedder).embed(anyList<String>())
+            listOf(ModelServerClient.ChunkEmbedding("one", listOf(0.1), 1))
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
         val executor = Executors.newSingleThreadExecutor()
         try {
             val staleWorker = executor.submit { processor.process(claim) }
@@ -914,6 +974,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             metadata = emptyMap(),
             embedding = listOf(0.1),
             sourceType = ConnectorSource.FILE,
+            indexedMetadata = IndexedMetadata(documentType = "file"),
         )
         doAnswer {
             indexDeleteStarted.countDown()
@@ -956,8 +1017,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             leaseAtEmbeddingStart.set(jobs.findById(run.jobId).orElseThrow().leaseExpiresAt)
             embeddingStarted.countDown()
             check(releaseEmbedding.await(2, TimeUnit.SECONDS))
-            invocation.getArgument<List<String>>(0).map { listOf(0.1) }
-        }.`when`(embedder).embed(anyList<String>())
+            listOf(ModelServerClient.ChunkEmbedding(invocation.getArgument(0), listOf(0.1), 1))
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
 
         val executor = Executors.newSingleThreadExecutor()
         try {

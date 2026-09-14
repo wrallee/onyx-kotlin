@@ -12,7 +12,14 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 from app.config import Settings
-from app.contracts import ApiError, EmbedRequest, EmbedResponse
+from app.contracts import (
+    ApiError,
+    ChunkEmbedRequest,
+    ChunkEmbedResponse,
+    EmbedRequest,
+    EmbedResponse,
+    EmbeddedChunk,
+)
 from app.runtime import EmbeddingRuntime
 
 logging.basicConfig(level=logging.INFO)
@@ -120,3 +127,26 @@ async def embed(request: EmbedRequest) -> EmbedResponse:
         raise
     finally:
         LATENCY.labels("embed").observe(time.perf_counter() - started)
+
+
+@app.post("/encoder/chunk-and-embed", response_model=ChunkEmbedResponse)
+async def chunk_and_embed(request: ChunkEmbedRequest) -> ChunkEmbedResponse:
+    started = time.perf_counter()
+    try:
+        chunks = await run_in_threadpool(embedding_runtime.chunk_and_embed, request)
+        REQUESTS.labels("chunk_embed", "success").inc()
+        return ChunkEmbedResponse(
+            chunks=[
+                EmbeddedChunk(
+                    content=content,
+                    embedding=embedding,
+                    token_count=token_count,
+                )
+                for content, embedding, token_count in chunks
+            ]
+        )
+    except Exception:
+        REQUESTS.labels("chunk_embed", "error").inc()
+        raise
+    finally:
+        LATENCY.labels("chunk_embed").observe(time.perf_counter() - started)

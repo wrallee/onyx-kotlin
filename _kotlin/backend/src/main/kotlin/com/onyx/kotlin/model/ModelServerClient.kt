@@ -14,13 +14,66 @@ class ModelServerClient(
     private val properties: OnyxProperties,
     clientBuilder: RestClient.Builder,
 ) {
+    data class ChunkEmbedding(
+        val content: String,
+        val embedding: List<Double>,
+        val tokenCount: Int,
+    )
+
     private val client = clientBuilder.buildModelServerClient(properties.modelServer)
 
     fun embed(texts: List<String>): List<List<Double>> = embed(texts, "passage")
 
     fun embedQuery(query: String): List<Double> = embed(listOf(query), "query").single()
 
+    fun chunkAndEmbed(text: String, title: String, metadataContext: String): List<ChunkEmbedding> {
+        val response = post(
+            "/encoder/chunk-and-embed",
+            mapOf(
+                "text" to text,
+                "title" to title,
+                "metadata_context" to metadataContext,
+                "model_name" to properties.modelServer.modelName,
+                "max_context_length" to properties.modelServer.maxContextLength,
+                "normalize_embeddings" to properties.modelServer.normalizeEmbeddings,
+            ),
+        )
+        val chunks = response.path("chunks")
+        check(chunks.isArray && chunks.size() > 0) { "Model server returned no chunks" }
+        return chunks.toList().map { chunk ->
+            val result = ChunkEmbedding(
+                content = chunk.path("content").asString(),
+                embedding = chunk.path("embedding").toList().map { it.asDouble() },
+                tokenCount = chunk.path("token_count").asInt(),
+            )
+            check(result.content.isNotBlank()) { "Model server returned a blank chunk" }
+            check(result.embedding.size == properties.modelServer.embeddingDimension) {
+                "Model server returned an embedding with dimension ${result.embedding.size}"
+            }
+            check(result.tokenCount in 1..properties.modelServer.maxContextLength) {
+                "Model server returned a chunk with ${result.tokenCount} tokens"
+            }
+            result
+        }
+    }
+
     private fun embed(texts: List<String>, textType: String): List<List<Double>> {
+        val response = post(
+            "/encoder/bi-encoder-embed",
+            mapOf(
+                "texts" to texts,
+                "model_name" to properties.modelServer.modelName,
+                "max_context_length" to properties.modelServer.maxContextLength,
+                "normalize_embeddings" to properties.modelServer.normalizeEmbeddings,
+                "text_type" to textType,
+            ),
+        )
+        return response.path("embeddings").toList().map { vector ->
+            vector.toList().map { it.asDouble() }
+        }
+    }
+
+    private fun post(path: String, body: Map<String, Any>): JsonNode {
         require(properties.modelServer.modelName.isNotBlank()) {
             "ONYX_EMBEDDING_MODEL_NAME must be configured before file ingestion"
         }
@@ -30,17 +83,9 @@ class ModelServerClient(
         while (true) {
             try {
                 response = client.post()
-                    .uri(properties.modelServer.baseUrl.trimEnd('/') + "/encoder/bi-encoder-embed")
+                    .uri(properties.modelServer.baseUrl.trimEnd('/') + path)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(
-                        mapOf(
-                            "texts" to texts,
-                            "model_name" to properties.modelServer.modelName,
-                            "max_context_length" to properties.modelServer.maxContextLength,
-                            "normalize_embeddings" to properties.modelServer.normalizeEmbeddings,
-                            "text_type" to textType,
-                        ),
-                    )
+                    .body(body)
                     .retrieve()
                     .body(JsonNode::class.java) ?: error("Model server returned no embedding response")
                 break
@@ -58,6 +103,6 @@ class ModelServerClient(
                 backoffMillis = backoffMillis.coerceAtMost(Long.MAX_VALUE / 2) * 2
             }
         }
-        return response.path("embeddings").toList().map { vector -> vector.toList().map { it.asDouble() } }
+        return response
     }
 }

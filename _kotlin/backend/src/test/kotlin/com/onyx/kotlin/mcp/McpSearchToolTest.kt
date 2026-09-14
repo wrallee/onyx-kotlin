@@ -8,6 +8,7 @@ import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.search.DocumentContextResponse
 import com.onyx.kotlin.search.SearchResponse
 import com.onyx.kotlin.search.SearchResult
+import com.onyx.kotlin.search.SearchMetadataFilters
 import com.onyx.kotlin.search.SearchService
 import com.onyx.kotlin.search.SearchType
 import io.modelcontextprotocol.spec.McpSchema
@@ -131,6 +132,51 @@ class McpSearchToolTest {
             SearchType.HYBRID,
             listOf("jira", "github"),
             cutoff,
+        )
+        assertThat(result.isError() == true).isFalse()
+    }
+
+    @Test
+    fun `search tool forwards explicit metadata filters`() {
+        val response = SearchResponse(results = emptyList())
+        val filters = SearchMetadataFilters(
+            projectKeys = listOf("ONYX"),
+            repositories = listOf("Example/Repo"),
+            spaces = listOf("ENG"),
+            statuses = listOf("In Progress"),
+            documentTypes = listOf("jira_issue"),
+        )
+        `when`(
+            search.search(
+                "deployment guide",
+                emptyList(),
+                SearchService.DEFAULT_RESULTS,
+                SearchType.HYBRID,
+                emptyList(),
+                null,
+                filters,
+            ),
+        ).thenReturn(response)
+
+        val result = tool.callSearch(
+            mapOf(
+                "query" to "deployment guide",
+                "project_keys" to listOf("ONYX"),
+                "repositories" to listOf("Example/Repo"),
+                "spaces" to listOf("ENG"),
+                "statuses" to listOf("In Progress"),
+                "document_types" to listOf("jira_issue"),
+            ),
+        )
+
+        verify(search).search(
+            "deployment guide",
+            emptyList(),
+            SearchService.DEFAULT_RESULTS,
+            SearchType.HYBRID,
+            emptyList(),
+            null,
+            filters,
         )
         assertThat(result.isError() == true).isFalse()
     }
@@ -328,6 +374,13 @@ class McpSearchToolTest {
         val properties = McpSearchTool.SEARCH_INPUT_SCHEMA["properties"] as Map<String, Any>
 
         assertThat(properties).containsKey("document_set_names").doesNotContainKey("document_sets")
+        assertThat(properties).containsKeys(
+            "project_keys",
+            "repositories",
+            "spaces",
+            "statuses",
+            "document_types",
+        )
     }
 
 }

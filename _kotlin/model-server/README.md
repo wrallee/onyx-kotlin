@@ -3,6 +3,7 @@
 This service provides the local embedding contract used by the Kotlin backend:
 
 - `POST /encoder/bi-encoder-embed`: Granite 311M Multilingual R2 INT8 OpenVINO
+- `POST /encoder/chunk-and-embed`: sentence-aware chunks with separate title and metadata context budgets
 
 It runs inside `python:3.13-slim`; the host Python version is irrelevant. The
 model is mounted read-only from `../models` and is never downloaded at request

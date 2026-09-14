@@ -4,6 +4,8 @@ import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
 import com.onyx.kotlin.connector.ConnectorSource
 import com.onyx.kotlin.search.SearchResponse
+import com.onyx.kotlin.search.IndexedDocumentType
+import com.onyx.kotlin.search.SearchMetadataFilters
 import com.onyx.kotlin.search.SearchService
 import com.onyx.kotlin.search.SearchType
 import io.modelcontextprotocol.spec.McpSchema
@@ -49,8 +51,23 @@ class McpSearchTool(
         val searchType = SearchType.fromString(searchTypeStr)
         val sourceTypes = parseSourceTypes(arguments["source_types"])
         val timeCutoff = parseTimeCutoff(arguments["time_cutoff"])
+        val metadataFilters = SearchMetadataFilters(
+            projectKeys = parseStrings(arguments["project_keys"], "project_keys"),
+            repositories = parseStrings(arguments["repositories"], "repositories"),
+            spaces = parseStrings(arguments["spaces"], "spaces"),
+            statuses = parseStrings(arguments["statuses"], "statuses"),
+            documentTypes = parseStrings(arguments["document_types"], "document_types"),
+        )
 
-        val response = search.search(query, documentSets, limit, searchType, sourceTypes, timeCutoff)
+        val response = search.search(
+            query,
+            documentSets,
+            limit,
+            searchType,
+            sourceTypes,
+            timeCutoff,
+            metadataFilters,
+        )
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
             .build()
@@ -85,6 +102,17 @@ class McpSearchTool(
             val value = entry as? String
                 ?: throw IllegalArgumentException("source_types must contain strings")
             ConnectorSource.fromValue(value).value
+        }
+    }
+
+    private fun parseStrings(raw: Any?, name: String): List<String> {
+        if (raw == null) return emptyList()
+        val values = raw as? List<*> ?: throw IllegalArgumentException("$name must be a list")
+        return values.map { entry ->
+            val value = entry as? String
+                ?: throw IllegalArgumentException("$name must contain strings")
+            value.takeIf(String::isNotBlank)
+                ?: throw IllegalArgumentException("$name must not contain blank strings")
         }
     }
 
@@ -195,7 +223,9 @@ pipeline):
 to connector types ("jira", "github", "confluence", or "file"); unrecognized values fail
 the call. `time_cutoff` (ISO 8601) returns only documents updated on
 or after that moment; naive timestamps are treated as UTC. An unparseable `time_cutoff`
-fails the call."""
+fails the call. `project_keys`, `repositories`, `spaces`, `statuses`, and `document_types`
+filter normalized indexed metadata. Values within one field are ORed; different fields
+are ANDed."""
 
         const val CONTEXT_TOOL_DESCRIPTION = """Fetch the chunks immediately before/after a specific chunk in a document
 returned by `search_indexed_documents`.
@@ -234,6 +264,18 @@ coverage for each subquestion instead."""
                     "uniqueItems" to true,
                 ),
                 "time_cutoff" to mapOf("type" to "string"),
+                "project_keys" to stringArraySchema(),
+                "repositories" to stringArraySchema(),
+                "spaces" to stringArraySchema(),
+                "statuses" to stringArraySchema(),
+                "document_types" to mapOf(
+                    "type" to "array",
+                    "items" to mapOf(
+                        "type" to "string",
+                        "enum" to IndexedDocumentType.entries.map(IndexedDocumentType::value),
+                    ),
+                    "uniqueItems" to true,
+                ),
                 "search_type" to mapOf(
                     "type" to "string",
                     "enum" to listOf("hybrid", "keyword", "semantic"),
@@ -248,6 +290,12 @@ coverage for each subquestion instead."""
             ),
             "required" to listOf("query"),
             "additionalProperties" to false,
+        )
+
+        private fun stringArraySchema(): Map<String, Any> = mapOf(
+            "type" to "array",
+            "items" to mapOf("type" to "string", "minLength" to 1),
+            "uniqueItems" to true,
         )
 
         val FUSION_INPUT_SCHEMA: Map<String, Any> = mapOf(

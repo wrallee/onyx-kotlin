@@ -10,6 +10,8 @@ import com.onyx.kotlin.opensearch.OpenSearchVectorStoreProperties
 import com.onyx.kotlin.opensearch.ZScoreNormalizationPipeline
 import org.opensearch.client.opensearch.OpenSearchClient
 import com.onyx.kotlin.connector.ConnectorSource
+import com.onyx.kotlin.search.IndexedMetadata
+import com.onyx.kotlin.search.SearchMetadataFilters
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
@@ -78,6 +80,9 @@ class OpenSearchIndexerTest {
             val vector = mapper.readTree(server.takeRequest().body.readUtf8())
             assertThat(keyword.path("size").asInt()).isEqualTo(30)
             assertThat(keyword.path("collapse").path("field").asString()).isEqualTo("source_chunk_id")
+            assertThat(keyword.path("query").path("bool").path("must").first()
+                .path("multi_match").path("fields").toList().map { it.asString() })
+                .containsExactly("title^2", "content", "search_context^0.5")
             assertThat(keyword.path("query").path("bool").path("filter").first()
                 .path("bool").path("filter").first().path("terms").path("document_sets")
                 .toList().map { it.asString() })
@@ -109,6 +114,13 @@ class OpenSearchIndexerTest {
                 count = 30,
                 sourceTypes = listOf("jira", "github"),
                 updatedAfter = java.time.Instant.parse("2026-01-01T00:00:00Z"),
+                metadataFilters = SearchMetadataFilters(
+                    projectKeys = listOf("onyx", "core"),
+                    repositories = listOf("example/repo"),
+                    spaces = listOf("eng"),
+                    statuses = listOf("open", "merged"),
+                    documentTypes = listOf("jira_issue"),
+                ),
             )
 
             server.takeRequest()
@@ -120,6 +132,11 @@ class OpenSearchIndexerTest {
                 .single().toList().map { it.asString() }).containsExactly("jira", "github")
             assertThat(filters.map { it.path("range").path("doc_updated_at").path("gte") }
                 .filter { !it.isMissingNode }.single().asString()).isEqualTo("2026-01-01T00:00:00Z")
+            assertThat(filters.terms("project_key")).containsExactly("onyx", "core")
+            assertThat(filters.terms("repository")).containsExactly("example/repo")
+            assertThat(filters.terms("space")).containsExactly("eng")
+            assertThat(filters.terms("status")).containsExactly("open", "merged")
+            assertThat(filters.terms("document_type")).containsExactly("jira_issue")
         }
     }
 
@@ -275,6 +292,12 @@ class OpenSearchIndexerTest {
                 "metadata",
                 "embedding",
                 "source_type",
+                "project_key",
+                "repository",
+                "space",
+                "status",
+                "document_type",
+                "search_context",
                 "document_sets",
                 "doc_updated_at",
                 "primary_owners",
@@ -311,12 +334,22 @@ class OpenSearchIndexerTest {
             indexer.upsert(
                 7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1),
                 sourceType = ConnectorSource.JIRA,
+                indexedMetadata = IndexedMetadata(
+                    projectKey = "onyx",
+                    status = "in progress",
+                    documentType = "jira_issue",
+                ),
             )
 
             val request = takeOperationRequest(server)
             val body = mapper.readTree(request.body.readUtf8())
             assertThat(body.path("source_type").asString()).isEqualTo("jira")
             assertThat(body.path("source_chunk_id").asString()).isEqualTo("one:0")
+            assertThat(body.path("project_key").asString()).isEqualTo("onyx")
+            assertThat(body.path("status").asString()).isEqualTo("in progress")
+            assertThat(body.path("document_type").asString()).isEqualTo("jira_issue")
+            assertThat(body.path("search_context").asString())
+                .isEqualTo("jira jira_issue onyx in progress")
         }
     }
 
@@ -554,4 +587,8 @@ class OpenSearchIndexerTest {
 
     private fun JsonNode.termValue(): Long = if (this.isObject) this.path("value").asLong() else this.asLong()
     private fun JsonNode.termString(): String = if (this.isObject) this.path("value").asString() else this.asString()
+    private fun List<JsonNode>.terms(field: String): List<String> = map { it.path("terms").path(field) }
+        .filterNot(JsonNode::isMissingNode)
+        .single()
+        .toList().map { it.asString() }
 }

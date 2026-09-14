@@ -24,6 +24,7 @@ class SearchService(
         searchType: SearchType = SearchType.HYBRID,
         sourceTypes: List<String> = emptyList(),
         timeCutoff: Instant? = null,
+        metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
     ): SearchResponse {
         require(query.isNotBlank()) { "query must not be blank" }
         require(limit in 1..MAX_RESULTS) { "limit must be between 1 and $MAX_RESULTS" }
@@ -34,6 +35,7 @@ class SearchService(
             val unknown = selectedSets.filterNot(known::contains)
             require(unknown.isEmpty()) { "Unknown document sets: ${unknown.joinToString()}" }
         }
+        val selectedMetadata = metadataFilters.normalized()
 
         val ranked = when (searchType) {
             SearchType.KEYWORD -> indexer.keywordSearch(
@@ -42,6 +44,7 @@ class SearchService(
                 limit,
                 sourceTypes,
                 timeCutoff,
+                selectedMetadata,
             )
             SearchType.SEMANTIC -> indexer.vectorSearch(
                 modelServer.embedQuery(query),
@@ -49,6 +52,7 @@ class SearchService(
                 limit,
                 sourceTypes,
                 timeCutoff,
+                selectedMetadata,
             )
             SearchType.HYBRID -> indexer.hybridSearch(
                 query,
@@ -57,6 +61,7 @@ class SearchService(
                 limit,
                 sourceTypes,
                 timeCutoff,
+                selectedMetadata,
             )
         }
 
