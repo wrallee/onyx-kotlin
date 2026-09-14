@@ -22,11 +22,7 @@ import {
   shouldRedirectToOAuth,
 } from "@/lib/credentials/credentialCreation";
 import ModifyCredential from "@/lib/credentials/components/ModifyCredential";
-import {
-  ConfigurableSources,
-  oauthSupportedSources,
-  ValidSources,
-} from "@/lib/types";
+import { ConfigurableSources, ValidSources } from "@/lib/types";
 import { Credential, credentialTemplates } from "@/lib/connectors/credentials";
 import {
   ConnectionConfiguration,
@@ -48,12 +44,6 @@ import { Formik } from "formik";
 import NavigationRow from "@/app/admin/connectors/[connector]/NavigationRow";
 import { useRouter } from "next/navigation";
 import CardSection from "@/components/admin/CardSection";
-import { prepareOAuthAuthorizationRequest } from "@/lib/oauth_utils";
-import {
-  EE_ENABLED,
-  NEXT_PUBLIC_CLOUD_ENABLED,
-  NEXT_PUBLIC_TEST_ENV,
-} from "@/lib/constants";
 import {
   getConnectorOauthRedirectUrl,
   useOAuthDetails,
@@ -138,23 +128,6 @@ export default function AddConnector({
   connector: ConfigurableSources;
 }) {
   const t = useTranslations("admin.connectorsList");
-  const [currentPageUrl, setCurrentPageUrl] = useState<string | null>(null);
-  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
-  const [isAuthorizing, setIsAuthorizing] = useState(false);
-  const [isAuthorizeVisible, setIsAuthorizeVisible] = useState(false);
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setCurrentPageUrl(window.location.href);
-    }
-
-    if (EE_ENABLED && (NEXT_PUBLIC_CLOUD_ENABLED || NEXT_PUBLIC_TEST_ENV)) {
-      const sourceMetadata = getSourceMetadata(connector);
-      if (sourceMetadata?.oauthSupported == true) {
-        setIsAuthorizeVisible(true);
-      }
-    }
-  }, []);
-
   const router = useRouter();
   const settings = useSettings();
   const defaultPruneFreqHours = settings.default_pruning_freq
@@ -297,37 +270,6 @@ export default function AddConnector({
       return;
     }
     setCredentialCreationMethod(method);
-  };
-
-  const handleAuthorize = async () => {
-    // authorize button handler
-    // gets an auth url from the server and directs the user to it in a popup
-
-    if (!currentPageUrl) return;
-
-    setIsAuthorizing(true);
-    try {
-      const response = await prepareOAuthAuthorizationRequest(
-        connector,
-        currentPageUrl
-      );
-      if (response.url) {
-        setOauthUrl(response.url);
-        window.open(response.url, "_blank", "noopener,noreferrer");
-      } else {
-        toast.error(t("add.oauthUrlFailed.toast"));
-      }
-    } catch (error: unknown) {
-      // Narrow the type of error
-      if (error instanceof Error) {
-        toast.error(t("add.error.toast", { detail: error.message }));
-      } else {
-        // Handle non-standard errors
-        toast.error(t("add.unknownError.toast"));
-      }
-    } finally {
-      setIsAuthorizing(false);
-    }
   };
 
   return (
@@ -615,21 +557,6 @@ export default function AddConnector({
                         </Button>
                       ))
                     )}
-                    {oauthSupportedSources.includes(connector) &&
-                      (NEXT_PUBLIC_CLOUD_ENABLED || NEXT_PUBLIC_TEST_ENV) && (
-                        <Button
-                          disabled={isAuthorizing}
-                          variant="action"
-                          onClick={handleAuthorize}
-                          hidden={!isAuthorizeVisible}
-                        >
-                          {isAuthorizing
-                            ? t("add.authorizeButton.pendingLabel")
-                            : t("add.authorizeButton.label", {
-                                source: displayName,
-                              })}
-                        </Button>
-                      )}
                   </Section>
                 )}
 
