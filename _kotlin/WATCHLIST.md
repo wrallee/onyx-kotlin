@@ -5,6 +5,18 @@ timezone: Asia/Seoul
 
 ## Open
 
+### WL-20260914-001 - 커넥터 OAuth 인증 흐름 구현
+- status: open
+- priority: P2
+- owner: both
+- due_at: unscheduled
+- created_at: 2026-09-14T01:44:54+09:00
+- source: OAuth 기능 조회 계획 대화; web/src/lib/connectors/oauth.ts
+- trigger: 현재 지원 커넥터에는 OAuth 인증이 없지만, 향후 DingDocs 등 OAuth 기반 커넥터를 추가할 때 전체 인증 흐름이 필요하다.
+- action: 첫 OAuth 커넥터가 확정되면 details·authorize·callback 엔드포인트와 state·PKCE 검증, 암호화 토큰 저장, 갱신 및 폐기를 함께 구현한다.
+- done_when: 선택한 커넥터가 Kotlin 백엔드에서 인증 시작, 콜백, 자격증명 생성, 토큰 갱신과 폐기까지 완료하고 회귀 테스트를 통과한다.
+- next_step_on_fail: 제공자의 공식 OAuth 및 문서 API 범위를 확인한 뒤 지원할 인증 방식과 수집 범위를 다시 정한다.
+
 ### WL-20260901-001 - 첨부파일과 이미지 벡터화 확인
 - status: open
 - priority: P1
