@@ -67,17 +67,19 @@ timezone: Asia/Seoul
 - done_when: Jira 크레덴셜 생성 UI에서 Base URL을 입력받아 사전 검증할 수 있고, 커넥터 설정과 분리된 온프레미스/클라우드 자격 증명 관리가 테스트로 검증된다.
 - next_step_on_fail: 커넥터 설정 단계의 jira_base_url 기반 판별 로직을 유지하면서 점진적 UI 개편을 진행한다.
 
-### WL-20260910-003 - GitHub PR 리뷰 댓글 문서 정규화
+### WL-20260910-003 - GitHub PR 댓글·리뷰 스레드 수집
 - status: open
 - priority: P2
 - owner: both
 - due_at: unscheduled
 - created_at: 2026-09-10T21:02:44+09:00
-- source: https://github.com/wrallee/onyx-kotlin/pull/26
-- trigger: 현재 PR 본문과 리뷰 댓글을 하나의 content 필드에 결합한다. 기존 검색 구조에는 적합하지만 댓글별 식별자와 스레드 관계는 보존하지 않는다.
-- action: 리뷰 댓글 검색 요구가 커지면 PR, 리뷰 스레드, 댓글을 안정적인 ID와 parent_pr_id로 정규화하고 전체 GitHub connector 재수집 절차를 정의한다.
-- done_when: 댓글이 PR 또는 리뷰 스레드 단위 문서로 색인되고 parent 기반 결과 중복 억제, 삭제 반영, 전체 재수집이 테스트로 검증된다.
-- next_step_on_fail: 현재 PR content 결합 방식을 유지하고 댓글 누적 크기 제한과 문서 단위 collapse를 계속 적용한다.
+- source: Python·Kotlin GitHub connector parity review, 2026-09-14
+- trigger: Python GitHub connector는 PR 댓글을 수집하지 않는다. Kotlin의 평면 인라인 리뷰 댓글 수집도 Python 범위 복원을 위해 제거한다.
+- action: 의사결정 검색 요구가 확정되면 일반 PR 댓글, 리뷰 제출 내용, 인라인 리뷰 댓글을 REST로 수집하고 in_reply_to_id 기반 리뷰 스레드 복원, 증분·삭제 수명주기를 설계한다.
+- done_when: 수집 단위와 식별자, 스레드 관계, 추가·수정·삭제 반영 규칙이 정해지고 회귀 테스트로 검증된다.
+- last_checked_at: 2026-09-14T00:40:07+09:00
+- result: Python 기능 범위에서는 댓글 수집을 제공하지 않는다. 현재 Kotlin의 인라인 댓글 결합도 제거하고 PR 본문만 색인한다.
+- next_step_on_fail: PR 본문만 수집하는 현재 기준을 유지한다.
 
 ### WL-20260911-001 - cross-pair 중복 문서의 최신 복사본 선택
 - status: open
@@ -91,17 +93,19 @@ timezone: Asia/Seoul
 - done_when: 서로 다른 base URL의 동일 문서 번호는 분리되고, 같은 논리 문서의 구버전과 신버전이 함께 있어도 keyword·semantic·hybrid 검색과 context가 최신 내용만 반환한다.
 - next_step_on_fail: 색인 단계의 최신본 통합과 검색 단계의 최신본 선택 중 더 작은 공통 수정 지점을 다시 비교한다.
 
-### WL-20260911-002 - GitHub GraphQL 전환과 증분 수집·PR N+1 개선
+### WL-20260911-002 - GitHub REST 수집 비용과 증분 효율 확인
 - status: open
 - priority: P1
 - owner: both
 - due_at: unscheduled
 - created_at: 2026-09-11T07:51:36+09:00
-- source: PR #26; backend/src/main/kotlin/com/onyx/kotlin/connector/loader/GithubConnectorLoader.kt
-- trigger: REST 기반 PR 수집은 목록 뒤 각 PR 상세와 리뷰 댓글을 개별 조회해 호출 수가 PR 수에 비례한다. 파일 수집은 저장소에 push가 있으면 전체 tree와 대상 파일을 다시 읽고, 리뷰 댓글만 변경된 경우의 증분 반영 계약도 명확하지 않다.
-- action: GitHub.com과 GitHub Enterprise Server에서 GraphQL로 PR 본문, 메타데이터, 리뷰 스레드와 댓글을 페이지 단위로 조회한다. PR·댓글·파일 변경을 독립적으로 추적하는 시간 범위와 checkpoint를 정하고, 현재 overlap, 삭제 prune, rate limit 비용과 실패 후 재개 계약을 보존한다.
-- done_when: 일반 페이지는 PR별 상세 REST 호출 없이 수집되고, 100개를 넘는 PR·리뷰 스레드·댓글도 누락 없이 이어서 조회된다. 댓글만 변경된 PR과 파일 변경이 불필요한 전체 재조회 없이 반영되며, pagination·checkpoint 재개·삭제 prune이 회귀 테스트로 검증된다.
-- next_step_on_fail: GraphQL 또는 변경 파일 API의 호환성이 부족하면 REST 저장소 단위 댓글 조회와 현재 전체 파일 수집을 분리해 단계적으로 개선한다.
+- source: Python·Kotlin GitHub connector parity review, 2026-09-14
+- trigger: REST PR 상세 조회는 PR 수에 비례하고, 중첩 범위는 같은 문서를 다시 처리한다. 파일 수집은 저장소 push 뒤 대상 파일을 다시 읽는다.
+- action: REST를 유지한 채 PR 상세 요청, 중첩 재색인, 파일 재조회와 임베딩 비용을 운영 규모에서 측정한다. 필요성이 확인될 때만 별도 최적화 계획을 만든다.
+- done_when: 실제 수집 실행의 요청·임베딩 비용이 기록되고, 필요한 최적화의 범위와 성공 기준이 승인된다.
+- last_checked_at: 2026-09-14T00:40:07+09:00
+- result: GraphQL 전환은 철회했다. 댓글·리뷰 스레드 수집은 WL-20260910-003에서 별도로 검토한다.
+- next_step_on_fail: 현재 순차 REST 수집과 호출 제한 보호를 유지한다.
 
 ## Done
 
