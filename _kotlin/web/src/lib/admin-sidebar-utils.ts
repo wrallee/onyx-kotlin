@@ -139,8 +139,9 @@ export interface SidebarItemEntry {
   link: string;
   error?: boolean;
   disabled?: boolean;
+  tierDisabled?: boolean;
   requiredTier?: Tier | null;
-  label?: string;
+  kotlinUnsupported?: boolean;
 }
 
 export function buildItems(
@@ -227,25 +228,19 @@ const KOTLIN_ADMIN_ENABLED_ITEMS = new Set<AdminNavItemId>([
  * The Kotlin port exposes a small, fixed admin surface. The remaining original
  * navigation stays visible as disabled context, not as a license decision.
  */
-export function buildKotlinAdminItems(): SidebarItemEntry[] {
-  const routes = Object.entries(ADMIN_ROUTES) as [
-    keyof typeof ADMIN_ROUTES,
-    AdminRouteEntry,
-  ][];
-
-  return routes.flatMap(([routeKey, route]) => {
-    const nameId = NAV_ITEM_IDS[routeKey];
-    if (nameId === null) return [];
-
-    return [
-      {
-        nameId,
-        icon: route.icon,
-        link: route.path,
-        sectionId: sectionIdFor(route.section),
-        disabled: !KOTLIN_ADMIN_ENABLED_ITEMS.has(nameId),
-        label: route.sidebarLabel,
-      },
-    ];
-  });
+export function buildKotlinAdminItems(
+  flags: FeatureFlags,
+  settings: Settings | null
+): SidebarItemEntry[] {
+  return buildItems([Permission.FULL_ADMIN_PANEL_ACCESS], flags, settings).map(
+    (item) => {
+      const kotlinUnsupported = !KOTLIN_ADMIN_ENABLED_ITEMS.has(item.nameId);
+      return {
+        ...item,
+        disabled: item.disabled || kotlinUnsupported,
+        tierDisabled: item.disabled,
+        kotlinUnsupported,
+      };
+    }
+  );
 }

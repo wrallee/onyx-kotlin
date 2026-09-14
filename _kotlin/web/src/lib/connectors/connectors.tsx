@@ -45,7 +45,7 @@ export interface Option {
   wrapInCollapsible?: boolean;
   disabled?:
     | boolean
-    | ((currentCredential: Credential<any> | null, values?: any) => boolean);
+    | ((values: any, currentCredential?: Credential<any> | null) => boolean);
   rightText?:
     | string
     | React.ReactNode
@@ -344,8 +344,7 @@ export const connectorConfigs: Record<
         placeholder: "https://github.your-company.com",
         description:
           "Base URL for GitHub Enterprise. /api/v3 is auto-appended.",
-        disabled: (currentCredential: any, values?: any) =>
-          Boolean((values ?? currentCredential)?.is_public_github),
+        disabled: (values: any) => Boolean(values?.is_public_github),
         rightText: (values: any) =>
           values?.is_public_github ? undefined : "/api/v3",
         transform: (value: string, values: any) => {
@@ -750,7 +749,7 @@ export const connectorConfigs: Record<
         default: false,
         description:
           "Check if this is a Confluence Cloud instance, uncheck for Confluence Server/Data Center",
-        disabled: (currentCredential) => {
+        disabled: (_values, currentCredential) => {
           if (currentCredential?.credential_json?.confluence_refresh_token) {
             return true;
           }
@@ -766,7 +765,7 @@ export const connectorConfigs: Record<
         initial: (currentCredential) => {
           return currentCredential?.credential_json?.wiki_base ?? "";
         },
-        disabled: (currentCredential) => {
+        disabled: (_values, currentCredential) => {
           if (currentCredential?.credential_json?.confluence_refresh_token) {
             return true;
           }

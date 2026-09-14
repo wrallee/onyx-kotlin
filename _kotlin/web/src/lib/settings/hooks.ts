@@ -1,9 +1,16 @@
 "use client";
 
-import type { AppSettings } from "@/lib/settings/types";
-import { ApplicationStatus, QueryHistoryType } from "@/lib/settings/types";
+import useSWR from "swr";
+import { errorHandlingFetcher } from "@/lib/fetcher";
+import { SWR_KEYS } from "@/lib/swr-keys";
+import type { AppSettings, Settings } from "@/lib/settings/types";
+import {
+  ApplicationStatus,
+  QueryHistoryType,
+  Tier,
+} from "@/lib/settings/types";
 
-const KOTLIN_ADMIN_SETTINGS: AppSettings = {
+const DEFAULT_SETTINGS: Settings = {
   auto_scroll: true,
   application_status: ApplicationStatus.ACTIVE,
   gpu_enabled: false,
@@ -18,19 +25,37 @@ const KOTLIN_ADMIN_SETTINGS: AppSettings = {
   reasoning_override_enabled: false,
   query_history_type: QueryHistoryType.DISABLED,
   vector_db_enabled: true,
-  vectorDbEnabled: true,
+  show_extra_connectors: false,
+  onyx_craft_available: false,
+  hooks_enabled: false,
+  tier: Tier.COMMUNITY,
   default_pruning_freq: 7 * 24 * 60 * 60,
-  ee_features_enabled: false,
-  enterprise: null,
-  appName: "Onyx",
-  logoUrl: null,
-  isLoading: false,
-  error: undefined,
 };
 
-/** Static settings for the intentionally unauthenticated Kotlin admin UI. */
+/** Fetch the Kotlin backend's feature flags without probing Enterprise settings. */
 export function useSettings(): AppSettings {
-  return KOTLIN_ADMIN_SETTINGS;
+  const { data, error, isLoading } = useSWR<Settings>(
+    SWR_KEYS.settings,
+    errorHandlingFetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      dedupingInterval: 30_000,
+    }
+  );
+  const settings = data ?? DEFAULT_SETTINGS;
+
+  return {
+    ...settings,
+    enterprise: null,
+    appName: "Onyx",
+    logoUrl: null,
+    vectorDbEnabled:
+      !isLoading && !error && settings.vector_db_enabled !== false,
+    isLoading,
+    error,
+  };
 }
 
 export function useIsSearchModeAvailable(): boolean {
