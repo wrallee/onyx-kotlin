@@ -67,6 +67,9 @@ class McpEndpointIntegrationTest {
                     .build(),
             )
             assertThat(result.isError() == true).isFalse()
+            assertThat(result.structuredContent()).isNull()
+            val text = (result.content().single() as McpSchema.TextContent).text()
+            assertThat(mapper.readTree(text).path("results").isArray).isTrue()
         }
 
         verify(search).search("deployment guide", listOf("Engineering"), 5, com.onyx.kotlin.search.SearchType.HYBRID)

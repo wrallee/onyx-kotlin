@@ -149,19 +149,7 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `search tool ignores an unparseable time cutoff instead of failing`() {
-        val response = SearchResponse(results = emptyList())
-        `when`(
-            search.search(
-                "deployment guide",
-                emptyList(),
-                SearchService.DEFAULT_RESULTS,
-                SearchType.HYBRID,
-                emptyList(),
-                null,
-            ),
-        ).thenReturn(response)
-
+    fun `search tool rejects an unparseable time cutoff`() {
         val result = tool.callSearch(
             mapOf(
                 "query" to "deployment guide",
@@ -169,15 +157,10 @@ class McpSearchToolTest {
             ),
         )
 
-        verify(search).search(
-            "deployment guide",
-            emptyList(),
-            SearchService.DEFAULT_RESULTS,
-            SearchType.HYBRID,
-            emptyList(),
-            null,
-        )
-        assertThat(result.isError() == true).isFalse()
+        assertThat(result.isError()).isTrue()
+        assertThat((result.content().single() as McpSchema.TextContent).text())
+            .isEqualTo("time_cutoff must be an ISO 8601 timestamp")
+        verifyNoInteractions(search)
     }
 
     @Test
@@ -193,7 +176,7 @@ class McpSearchToolTest {
     }
 
     @Test
-    fun `search response preserves the excerpt contract in both MCP representations`() {
+    fun `search response preserves the excerpt contract without duplicate structured content`() {
         val mapper = jacksonObjectMapper()
 
         listOf(3, 5, 10, 20).forEach { limit ->
@@ -216,7 +199,8 @@ class McpSearchToolTest {
             val result = tool.callSearch(mapOf("query" to "query", "limit" to limit))
             val text = (result.content().single() as McpSchema.TextContent).text()
 
-            assertThat(mapper.readTree(text)).isEqualTo(mapper.valueToTree(result.structuredContent()))
+            assertThat(mapper.readTree(text)).isEqualTo(mapper.valueToTree(response))
+            assertThat(result.structuredContent()).isNull()
             assertThat(text).doesNotContain("\"content\"")
         }
     }
@@ -251,6 +235,10 @@ class McpSearchToolTest {
 
         verify(search).getDocumentContext("chunk-5", 1, 3)
         assertThat(result.isError() == true).isFalse()
+        assertThat(result.structuredContent()).isNull()
+        assertThat(
+            jacksonObjectMapper().readTree((result.content().single() as McpSchema.TextContent).text()),
+        ).isEqualTo(jacksonObjectMapper().valueToTree(response))
         assertThat(tool.contextDefinition().name()).isEqualTo("get_document_context")
     }
 
@@ -315,9 +303,10 @@ class McpSearchToolTest {
 
         val result = fusionTool.callFusion(mapOf("ranked_results" to listOf(results)))
 
-        @Suppress("UNCHECKED_CAST")
-        val content = result.structuredContent() as Map<String, List<Map<String, Any?>>>
-        assertThat(content.getValue("results").map { it["title"] }).containsExactly("First", "Second")
+        val content = jacksonObjectMapper().readTree((result.content().single() as McpSchema.TextContent).text())
+        assertThat(result.structuredContent()).isNull()
+        assertThat(content.path("results").toList().map { it.path("title").asString() })
+            .containsExactly("First", "Second")
     }
 
     @Test
