@@ -17,7 +17,7 @@ x-backend-environment: &backend-environment
   OPENSEARCH_INDEX: ${OPENSEARCH_INDEX:-onyx-kotlin-chunks}
   OPENSEARCH_ADMIN_USERNAME: admin
   OPENSEARCH_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set a strong OpenSearch admin password}
-  OPENSEARCH_VERIFY_CERTS: "false"
+  OPENSEARCH_VERIFY_CERTS: ${OPENSEARCH_VERIFY_CERTS:-false}
 
 services:
   web:

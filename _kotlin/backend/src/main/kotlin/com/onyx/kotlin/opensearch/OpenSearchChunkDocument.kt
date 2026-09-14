@@ -55,8 +55,10 @@ data class OpenSearchChunkDocument(
     fun toSearchCandidate(id: String, score: Double, mapper: tools.jackson.databind.ObjectMapper? = null): com.onyx.kotlin.search.SearchCandidate {
         val metaNode = when (val raw = metadata) {
             null -> mapper?.createObjectNode() ?: tools.jackson.databind.node.JsonNodeFactory.instance.objectNode()
-            else -> mapper?.valueToTree(raw) ?: tools.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+            else -> mapper?.valueToTree<tools.jackson.databind.node.ObjectNode>(raw)
+                ?: tools.jackson.databind.node.JsonNodeFactory.instance.objectNode()
         }
+        docUpdatedAt?.let { metaNode.put("doc_updated_at", it) }
         return com.onyx.kotlin.search.SearchCandidate(
             id = id,
             ccPairId = ccPairId,

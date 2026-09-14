@@ -106,10 +106,10 @@ directly.
 }
 ```
 
-The `search` tool accepts an optional `document_sets` array. It searches the
+The `search` tool accepts an optional `document_set_names` array. It searches the
 union of those sets and returns metadata with a short excerpt and opaque `id`.
 Pass that `id` to `get_document_context` to read the same indexed copy. The
-default limit is 30.
+tools return each JSON payload once as MCP text content. The default limit is 30.
 Hybrid search retrieves five times the requested limit before OpenSearch
 normalizes and collapses results by document. Set
 `ONYX_SEARCH_CANDIDATE_MULTIPLIER` to change that multiplier.
@@ -122,10 +122,10 @@ expose it beyond the intended private environment until authentication exists.
 ```bash
 # Backend
 cd backend
-JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew test
+JAVA_HOME="$HOME/.sdkman/candidates/java/25-zulu" ./gradlew test
 
 # OpenSearch integration profile (starts one shared container)
-JAVA_HOME="$HOME/.sdkman/candidates/java/21-zulu" ./gradlew opensearchIntegrationTest
+JAVA_HOME="$HOME/.sdkman/candidates/java/25-zulu" ./gradlew opensearchIntegrationTest
 cd ..
 
 # Web-to-PostgreSQL-to-OpenSearch File ingestion

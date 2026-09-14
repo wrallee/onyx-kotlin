@@ -48,12 +48,11 @@ class McpSearchTool(
         val searchTypeStr = arguments["search_type"] as? String
         val searchType = SearchType.fromString(searchTypeStr)
         val sourceTypes = parseSourceTypes(arguments["source_types"])
-        val timeCutoff = parseTimeCutoff(arguments["time_cutoff"] as? String)
+        val timeCutoff = parseTimeCutoff(arguments["time_cutoff"])
 
         val response = search.search(query, documentSets, limit, searchType, sourceTypes, timeCutoff)
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
-            .structuredContent(response)
             .build()
     } catch (error: Exception) {
         McpSchema.CallToolResult.builder()
@@ -71,7 +70,6 @@ class McpSearchTool(
         val response = search.getDocumentContext(id, chunksAbove, chunksBelow)
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
-            .structuredContent(response)
             .build()
     } catch (error: Exception) {
         McpSchema.CallToolResult.builder()
@@ -97,11 +95,13 @@ class McpSearchTool(
         else -> throw IllegalArgumentException("limit must be an integer")
     }
 
-    private fun parseTimeCutoff(raw: String?): Instant? {
-        if (raw.isNullOrBlank()) return null
-        return runCatching { Instant.parse(raw) }
-            .recoverCatching { Instant.parse("${raw}Z") }
-            .getOrNull()
+    private fun parseTimeCutoff(raw: Any?): Instant? {
+        if (raw == null) return null
+        val value = (raw as? String)?.takeIf(String::isNotBlank)
+            ?: throw IllegalArgumentException("time_cutoff must be an ISO 8601 timestamp")
+        return runCatching { Instant.parse(value) }
+            .recoverCatching { Instant.parse("${value}Z") }
+            .getOrElse { throw IllegalArgumentException("time_cutoff must be an ISO 8601 timestamp") }
     }
 
     fun callFusion(arguments: Map<String, Any>): McpSchema.CallToolResult = try {
@@ -137,7 +137,6 @@ class McpSearchTool(
         val response = mapOf("results" to merged)
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
-            .structuredContent(response)
             .build()
     } catch (error: Exception) {
         McpSchema.CallToolResult.builder()
@@ -195,8 +194,8 @@ pipeline):
 `document_set_names` restricts results to named Document Sets. `source_types` restricts
 to connector types ("jira", "github", "confluence", or "file"); unrecognized values fail
 the call. `time_cutoff` (ISO 8601) returns only documents updated on
-or after that moment; naive timestamps are treated as UTC. An unparseable `time_cutoff` is
-ignored (search proceeds without the filter) rather than failing the call."""
+or after that moment; naive timestamps are treated as UTC. An unparseable `time_cutoff`
+fails the call."""
 
         const val CONTEXT_TOOL_DESCRIPTION = """Fetch the chunks immediately before/after a specific chunk in a document
 returned by `search_indexed_documents`.

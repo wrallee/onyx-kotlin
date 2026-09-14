@@ -37,6 +37,21 @@ class OpenSearchIndexerTest {
     }
 
     @Test
+    fun `search candidate includes the indexed document update time in metadata`() {
+        val updatedAt = "2026-09-15T00:00:00Z"
+        val candidate = OpenSearchChunkDocument(
+            metadata = mapOf("source" to "jira", "doc_updated_at" to "stale"),
+            docUpdatedAt = updatedAt,
+        ).toSearchCandidate("chunk-1", 1.0, mapper)
+        val candidateWithoutUpdatedAt = OpenSearchChunkDocument()
+            .toSearchCandidate("chunk-2", 1.0, mapper)
+
+        assertThat(candidate.metadata.path("source").asString()).isEqualTo("jira")
+        assertThat(candidate.metadata.path("doc_updated_at").asString()).isEqualTo(updatedAt)
+        assertThat(candidateWithoutUpdatedAt.metadata.has("doc_updated_at")).isFalse()
+    }
+
+    @Test
     fun `keyword and vector search apply the same document set filter`() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
