@@ -1,24 +1,29 @@
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from fastapi.responses import JSONResponse
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 from app.config import Settings
 from app.contracts import (
     ApiError,
     ChunkEmbedRequest,
     ChunkEmbedResponse,
+    EmbeddedChunk,
     EmbedRequest,
     EmbedResponse,
-    EmbeddedChunk,
 )
 from app.runtime import EmbeddingRuntime
 
@@ -74,7 +79,9 @@ async def invalid_request(_: Any, error: ValueError):
 async def runtime_unavailable(_: Any, error: RuntimeError):
     return JSONResponse(
         status_code=503,
-        content=ApiError(code="MODEL_RUNTIME_UNAVAILABLE", message=str(error)).model_dump(),
+        content=ApiError(
+            code="MODEL_RUNTIME_UNAVAILABLE", message=str(error)
+        ).model_dump(),
     )
 
 

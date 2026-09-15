@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from threading import BoundedSemaphore
 from typing import Any
 
-from chonkie import SentenceChunker
 import numpy as np
+from chonkie import SentenceChunker
 
 from app.config import Settings
 from app.contracts import ChunkEmbedRequest, EmbedRequest, EmbedTextType
@@ -46,7 +45,9 @@ class EmbeddingRuntime:
         openvino_path = model_path / self.settings.embedding_openvino_file
         for required in (tokenizer_path, openvino_path):
             if not required.is_file():
-                raise FileNotFoundError(f"Required embedding artifact is missing: {required}")
+                raise FileNotFoundError(
+                    f"Required embedding artifact is missing: {required}"
+                )
 
         self._tokenizer = AutoTokenizer.from_pretrained(
             model_path,
@@ -92,7 +93,9 @@ class EmbeddingRuntime:
             raise ValueError("text must not be blank.")
 
         context_limit = min(MAX_CONTEXT_TOKENS, request.max_context_length // 4)
-        context = self._build_context(request.title, request.metadata_context, context_limit)
+        context = self._build_context(
+            request.title, request.metadata_context, context_limit
+        )
         prefix = f"{context}\n\n" if context else ""
         content_limit = request.max_context_length - self._token_count(prefix)
         if content_limit < 1:
@@ -108,7 +111,9 @@ class EmbeddingRuntime:
         contents = [
             piece
             for candidate in candidates
-            for piece in self._split_to_limit(candidate, prefix, request.max_context_length)
+            for piece in self._split_to_limit(
+                candidate, prefix, request.max_context_length
+            )
             if piece.strip()
         ]
         if not contents:
@@ -178,7 +183,9 @@ class EmbeddingRuntime:
         token_ids = self._tokenizer.encode(text, add_special_tokens=False)
         if len(token_ids) <= max_tokens:
             return text
-        return self._tokenizer.decode(token_ids[:max_tokens], skip_special_tokens=True).strip()
+        return self._tokenizer.decode(
+            token_ids[:max_tokens], skip_special_tokens=True
+        ).strip()
 
     def _build_context(self, title: str, metadata_context: str, max_tokens: int) -> str:
         metadata = self._fit_context(
@@ -189,12 +196,18 @@ class EmbeddingRuntime:
             return metadata
         title_prefix = f"{metadata}\nTitle: " if metadata else "Title: "
         context = self._fit_context(title_prefix + title.strip(), max_tokens)
-        return context if context.startswith(title_prefix) and len(context) > len(title_prefix) else metadata
+        return (
+            context
+            if context.startswith(title_prefix) and len(context) > len(title_prefix)
+            else metadata
+        )
 
     def _fit_context(self, text: str, max_tokens: int) -> str:
         context = self._trim_to_tokens(text, max_tokens)
         while context and self._token_count(f"{context}\n\n") > max_tokens:
-            context = self._trim_to_tokens(context, self._content_token_count(context) - 1)
+            context = self._trim_to_tokens(
+                context, self._content_token_count(context) - 1
+            )
         return context
 
     def _split_to_limit(self, text: str, prefix: str, max_tokens: int) -> list[str]:
@@ -228,7 +241,9 @@ class EmbeddingRuntime:
                 if end_index > offset_index:
                     candidate_end = offsets[end_index - 1][1]
             if end_index <= offset_index or candidate_end <= start:
-                raise ValueError("A single token does not fit within max_context_length.")
+                raise ValueError(
+                    "A single token does not fit within max_context_length."
+                )
             pieces.append(text[start:candidate_end])
             start = candidate_end
             offset_index = end_index

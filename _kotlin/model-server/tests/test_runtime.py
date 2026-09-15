@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from app.config import Settings
 from app.contracts import ChunkEmbedRequest
 from app.runtime import EmbeddingRuntime, RuntimeStatus
@@ -16,6 +15,7 @@ class CharacterTokenizer:
         return [-1, *tokens, -2] if add_special_tokens else tokens
 
     def decode(self, tokens: list[int], *, skip_special_tokens: bool) -> str:
+        assert skip_special_tokens is True
         return "".join(chr(token) for token in tokens if token >= 0)
 
     def __call__(self, text: str, **options: Any) -> dict[str, Any]:
@@ -47,6 +47,8 @@ def runtime(monkeypatch) -> EmbeddingRuntime:
         truncate: bool,
     ) -> list[list[float]]:
         assert truncate is False
+        assert normalize_embeddings is True
+        assert reduced_dimension is None
         assert all(value._token_count(text) <= max_context_length for text in texts)
         return [[float(index)] for index, _ in enumerate(texts)]
 
@@ -54,7 +56,9 @@ def runtime(monkeypatch) -> EmbeddingRuntime:
     return value
 
 
-def test_chunk_and_embed_preserves_long_text_within_model_limit(runtime: EmbeddingRuntime) -> None:
+def test_chunk_and_embed_preserves_long_text_within_model_limit(
+    runtime: EmbeddingRuntime,
+) -> None:
     text = "가나다라마바사아자차카타파하" * 3
 
     chunks = runtime.chunk_and_embed(
@@ -75,7 +79,9 @@ def test_chunk_and_embed_preserves_long_text_within_model_limit(runtime: Embeddi
     ]
 
 
-def test_chunk_and_embed_keeps_sentence_boundaries_when_they_fit(runtime: EmbeddingRuntime) -> None:
+def test_chunk_and_embed_keeps_sentence_boundaries_when_they_fit(
+    runtime: EmbeddingRuntime,
+) -> None:
     chunks = runtime.chunk_and_embed(
         ChunkEmbedRequest(
             text="First sentence. Second sentence.",
@@ -84,10 +90,15 @@ def test_chunk_and_embed_keeps_sentence_boundaries_when_they_fit(runtime: Embedd
         )
     )
 
-    assert [content for content, _, _ in chunks] == ["First sentence. ", "Second sentence."]
+    assert [content for content, _, _ in chunks] == [
+        "First sentence. ",
+        "Second sentence.",
+    ]
 
 
-def test_context_keeps_metadata_before_truncating_a_long_title(runtime: EmbeddingRuntime) -> None:
+def test_context_keeps_metadata_before_truncating_a_long_title(
+    runtime: EmbeddingRuntime,
+) -> None:
     context = runtime._build_context(
         title="very long title " * 20,
         metadata_context="Repository: org/api\nStatus: open",

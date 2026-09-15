@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.main import app, embedding_runtime
 from app.runtime import RuntimeStatus
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -47,7 +46,9 @@ def test_embed_contract_with_fake_runtime(monkeypatch, client: TestClient) -> No
     assert response.json() == {"embeddings": [[1.0, 0.0], [1.0, 0.0]]}
 
 
-def test_chunk_and_embed_contract_with_fake_runtime(monkeypatch, client: TestClient) -> None:
+def test_chunk_and_embed_contract_with_fake_runtime(
+    monkeypatch, client: TestClient
+) -> None:
     monkeypatch.setattr(
         embedding_runtime,
         "chunk_and_embed",
