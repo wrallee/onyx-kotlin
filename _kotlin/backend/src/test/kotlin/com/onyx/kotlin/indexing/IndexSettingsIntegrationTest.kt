@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.util.concurrent.CountDownLatch
@@ -51,6 +52,11 @@ class IndexSettingsIntegrationTest : H2IntegrationTest() {
 
     @Test
     fun apiExposesCurrentPendingAndReindexRequiredState() {
+        mvc.perform(get("/search-settings/get-secondary-search-settings"))
+            .andExpect(status().isOk)
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+            .andExpect(content().string("null"))
+
         mvc.perform(get("/search-settings/get-current-search-settings"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.model_name").value("ibm-granite/granite-embedding-311m-multilingual-r2"))

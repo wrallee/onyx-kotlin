@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
+import tools.jackson.databind.node.NullNode
 import java.time.Instant
 
 data class SearchSettingsRequest(
@@ -56,7 +57,7 @@ class IndexSettingsController(private val settings: IndexSettingsService) {
     fun current(): SearchSettingsResponse = settings.current()
 
     @GetMapping("/search-settings/get-secondary-search-settings")
-    fun pending(): SearchSettingsResponse? = settings.pending()
+    fun pending(): Any = settings.pending() ?: NullNode.getInstance()
 
     @PostMapping("/search-settings/set-new-search-settings")
     fun savePending(@Valid @RequestBody request: SearchSettingsRequest): IdResponse = settings.savePending(request)
