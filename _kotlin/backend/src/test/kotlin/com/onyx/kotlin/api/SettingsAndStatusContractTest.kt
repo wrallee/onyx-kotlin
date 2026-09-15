@@ -1,6 +1,7 @@
 package com.onyx.kotlin.api
 
 import tools.jackson.module.kotlin.jacksonObjectMapper
+import com.onyx.kotlin.indexing.IndexSettingsService
 import com.onyx.kotlin.ingestion.IngestionQueryService
 import com.onyx.kotlin.ingestion.IngestionStatusController
 import org.junit.jupiter.api.Test
@@ -15,7 +16,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 class SettingsAndStatusContractTest {
     @Test
     fun settingsExposeAuthlessCommunityVectorDefaults() {
-        val mvc = MockMvcBuilders.standaloneSetup(SettingsController()).build()
+        val indexSettings = mock(IndexSettingsService::class.java)
+        `when`(indexSettings.needsReindexing()).thenReturn(false)
+        val mvc = MockMvcBuilders.standaloneSetup(SettingsController(indexSettings)).build()
 
         mvc.perform(get("/settings"))
             .andExpect(status().isOk)
@@ -23,6 +26,7 @@ class SettingsAndStatusContractTest {
             .andExpect(jsonPath("$.ee_features_enabled").value(false))
             .andExpect(jsonPath("$.tier").value("community"))
             .andExpect(jsonPath("$.vector_db_enabled").value(true))
+            .andExpect(jsonPath("$.needs_reindexing").value(false))
             .andExpect(jsonPath("$.default_pruning_freq").value(604800))
     }
 

@@ -115,6 +115,8 @@ class ConnectorCredentialPairEntity(
     var ingestionClaimToken: UUID? = null,
     @Column(name = "ingestion_lease_expires_at")
     var ingestionLeaseExpiresAt: Instant? = null,
+    @Column(name = "full_recollect_requested", nullable = false)
+    var fullRecollectRequested: Boolean = false,
     @CreationTimestamp @Column(name = "created_at", updatable = false)
     var createdAt: Instant? = null,
     @UpdateTimestamp @Column(name = "updated_at")
