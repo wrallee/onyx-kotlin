@@ -21,9 +21,12 @@ from app.contracts import (
     ApiError,
     ChunkEmbedRequest,
     ChunkEmbedResponse,
+    ChunkResponse,
     EmbeddedChunk,
     EmbedRequest,
     EmbedResponse,
+    PreparedChunk,
+    PrepareExistingChunksRequest,
 )
 from app.runtime import EmbeddingRuntime
 
@@ -99,6 +102,10 @@ def gpu_status() -> dict[str, Any]:
 def model_status() -> dict[str, Any]:
     return {
         "embedding": embedding_runtime.status.__dict__,
+        "models": {
+            name: status.__dict__
+            for name, status in embedding_runtime.model_statuses().items()
+        },
         "startup_errors": startup_errors,
     }
 
@@ -157,3 +164,35 @@ async def chunk_and_embed(request: ChunkEmbedRequest) -> ChunkEmbedResponse:
         raise
     finally:
         LATENCY.labels("chunk_embed").observe(time.perf_counter() - started)
+
+
+@app.post("/encoder/chunk", response_model=ChunkResponse)
+async def chunk(request: ChunkEmbedRequest) -> ChunkResponse:
+    _, chunks = await run_in_threadpool(embedding_runtime.prepare_chunks, request)
+    return ChunkResponse(
+        chunks=[
+            PreparedChunk(
+                content=content,
+                embedding_text=embedding_text,
+                token_count=token_count,
+            )
+            for content, embedding_text, token_count in chunks
+        ]
+    )
+
+
+@app.post("/encoder/prepare-existing-chunks", response_model=ChunkResponse)
+async def prepare_existing_chunks(
+    request: PrepareExistingChunksRequest,
+) -> ChunkResponse:
+    chunks = await run_in_threadpool(embedding_runtime.prepare_existing_chunks, request)
+    return ChunkResponse(
+        chunks=[
+            PreparedChunk(
+                content=content,
+                embedding_text=embedding_text,
+                token_count=token_count,
+            )
+            for content, embedding_text, token_count in chunks
+        ]
+    )

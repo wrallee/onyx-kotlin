@@ -1,17 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from threading import BoundedSemaphore
+from pathlib import Path
+from threading import BoundedSemaphore, Lock
 from typing import Any
 
 import numpy as np
 from chonkie import SentenceChunker
 
 from app.config import Settings
-from app.contracts import ChunkEmbedRequest, EmbedRequest, EmbedTextType
+from app.contracts import (
+    ChunkEmbedRequest,
+    EmbedRequest,
+    EmbedTextType,
+    PrepareExistingChunksRequest,
+)
 
 MAX_CONTEXT_TOKENS = 128
 MAX_METADATA_CONTEXT_TOKENS = 48
+HARRIER_MODEL_NAME = "microsoft/harrier-oss-v1-0.6b"
+HARRIER_DIMENSION = 1024
+HARRIER_QUERY_PREFIX = (
+    "Instruct: Given a web search query, retrieve relevant passages that answer "
+    "the query\nQuery: "
+)
 
 
 @dataclass(frozen=True)
@@ -26,15 +38,30 @@ class RuntimeStatus:
 class EmbeddingRuntime:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._tokenizer: Any = None
+        self._granite_tokenizer: Any = None
         self._compiled_model: Any = None
+        self._harrier_tokenizer: Any = None
+        self._harrier_model: Any = None
         self._semaphore = BoundedSemaphore(settings.inference_concurrency)
-        self.status = RuntimeStatus(
-            False,
-            "NOT_LOADED",
-            "Granite embedding runtime is not loaded.",
-            settings.embedding_model_name,
-        )
+        self._load_lock = Lock()
+        self._statuses = {
+            settings.embedding_model_name: RuntimeStatus(
+                False,
+                "NOT_LOADED",
+                "Granite embedding runtime is not loaded.",
+                settings.embedding_model_name,
+            ),
+            HARRIER_MODEL_NAME: self._harrier_initial_status(
+                settings.harrier_model_path
+            ),
+        }
+
+    @property
+    def status(self) -> RuntimeStatus:
+        return self._statuses[self.settings.embedding_model_name]
+
+    def model_statuses(self) -> dict[str, RuntimeStatus]:
+        return dict(self._statuses)
 
     def load(self) -> None:
         from openvino import Core
@@ -49,13 +76,13 @@ class EmbeddingRuntime:
                     f"Required embedding artifact is missing: {required}"
                 )
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
+        self._granite_tokenizer = AutoTokenizer.from_pretrained(
             model_path,
             local_files_only=True,
             trust_remote_code=False,
         )
         self._compiled_model = Core().compile_model(str(openvino_path), "CPU")
-        self.status = RuntimeStatus(
+        self._statuses[self.settings.embedding_model_name] = RuntimeStatus(
             True,
             "READY",
             "Granite INT8 OpenVINO embedding runtime is ready.",
@@ -63,14 +90,19 @@ class EmbeddingRuntime:
         )
 
     def embed(self, request: EmbedRequest) -> list[list[float]]:
-        self._validate_model(request.model_name)
         if request.provider_type is not None:
             raise ValueError("provider_type must be null for a local embedding model.")
         if not request.texts or any(not text for text in request.texts):
             raise ValueError("texts must contain only non-empty strings.")
 
+        model_name = self._resolve_model(request.model_name)
         prefix = None
-        if request.text_type == EmbedTextType.QUERY:
+        if (
+            model_name == HARRIER_MODEL_NAME
+            and request.text_type == EmbedTextType.QUERY
+        ):
+            prefix = HARRIER_QUERY_PREFIX
+        elif request.text_type == EmbedTextType.QUERY:
             prefix = request.manual_query_prefix
         elif request.text_type == EmbedTextType.PASSAGE:
             prefix = request.manual_passage_prefix
@@ -78,6 +110,7 @@ class EmbeddingRuntime:
 
         return self._embed_texts(
             texts,
+            model_name,
             request.max_context_length,
             request.normalize_embeddings,
             request.reduced_dimension,
@@ -88,21 +121,49 @@ class EmbeddingRuntime:
         self,
         request: ChunkEmbedRequest,
     ) -> list[tuple[str, list[float], int]]:
-        self._validate_model(request.model_name)
+        model_name, prepared = self.prepare_chunks(request)
+        embeddings = self._embed_texts(
+            [embedding_text for _, embedding_text, _ in prepared],
+            model_name,
+            request.max_context_length,
+            request.normalize_embeddings,
+            reduced_dimension=None,
+            truncate=False,
+        )
+        return [
+            (content, embedding, token_count)
+            for (content, _, token_count), embedding in zip(
+                prepared, embeddings, strict=True
+            )
+        ]
+
+    def prepare_chunks(
+        self,
+        request: ChunkEmbedRequest,
+    ) -> tuple[str, list[tuple[str, str, int]]]:
         if not request.text.strip():
             raise ValueError("text must not be blank.")
 
-        context_limit = min(MAX_CONTEXT_TOKENS, request.max_context_length // 4)
-        context = self._build_context(
-            request.title, request.metadata_context, context_limit
+        model_name = self._resolve_model(request.model_name)
+        tokenizer = self._tokenizer(model_name)
+        prefix = self._embedding_prefix(
+            tokenizer,
+            model_name,
+            request.title,
+            request.metadata_context,
+            request.manual_passage_prefix,
+            request.max_context_length,
         )
-        prefix = f"{context}\n\n" if context else ""
-        content_limit = request.max_context_length - self._token_count(prefix)
+        content_limit = request.max_context_length - self._token_count(
+            tokenizer, prefix
+        )
         if content_limit < 1:
             raise ValueError("context leaves no tokens for chunk content.")
 
         splitter = SentenceChunker(
-            tokenizer_or_token_counter=self._content_token_count,
+            tokenizer_or_token_counter=lambda text: self._content_token_count(
+                tokenizer, text
+            ),
             chunk_size=content_limit,
             chunk_overlap=0,
             return_type="texts",
@@ -112,7 +173,7 @@ class EmbeddingRuntime:
             piece
             for candidate in candidates
             for piece in self._split_to_limit(
-                candidate, prefix, request.max_context_length
+                tokenizer, candidate, prefix, request.max_context_length
             )
             if piece.strip()
         ]
@@ -120,40 +181,125 @@ class EmbeddingRuntime:
             raise ValueError("text produced no non-empty chunks.")
 
         embedding_texts = [prefix + content for content in contents]
-        token_counts = [self._token_count(text) for text in embedding_texts]
+        token_counts = [self._token_count(tokenizer, text) for text in embedding_texts]
         if any(count > request.max_context_length for count in token_counts):
             raise RuntimeError("chunking produced text above max_context_length.")
-        embeddings = self._embed_texts(
-            embedding_texts,
-            request.max_context_length,
-            request.normalize_embeddings,
-            reduced_dimension=None,
-            truncate=False,
+        return model_name, list(
+            zip(contents, embedding_texts, token_counts, strict=True)
         )
-        return list(zip(contents, embeddings, token_counts, strict=True))
 
-    def _validate_model(self, model_name: str | None) -> None:
-        if not self.status.ready:
-            raise RuntimeError(self.status.message)
-        if model_name not in (None, self.settings.embedding_model_name):
+    def prepare_existing_chunks(
+        self, request: PrepareExistingChunksRequest
+    ) -> list[tuple[str, str, int]]:
+        if not request.chunks or any(
+            not chunk.content.strip() for chunk in request.chunks
+        ):
+            raise ValueError("chunks must contain only non-blank content.")
+        model_name = self._resolve_model(request.model_name)
+        tokenizer = self._tokenizer(model_name)
+        prepared: list[tuple[str, str, int]] = []
+        for chunk in request.chunks:
+            prefix = self._embedding_prefix(
+                tokenizer,
+                model_name,
+                chunk.title,
+                chunk.search_context,
+                request.manual_passage_prefix,
+                request.max_context_length,
+            )
+            embedding_content = self._split_to_limit(
+                tokenizer,
+                chunk.content,
+                prefix,
+                request.max_context_length,
+            )[0]
+            embedding_text = prefix + embedding_content
+            prepared.append(
+                (
+                    chunk.content,
+                    embedding_text,
+                    self._token_count(tokenizer, embedding_text),
+                )
+            )
+        return prepared
+
+    def _resolve_model(self, requested_name: str | None) -> str:
+        model_name = requested_name or self.settings.embedding_model_name
+        if model_name not in self._statuses:
             raise ValueError(f"Unsupported embedding model: {model_name}")
+        if model_name == HARRIER_MODEL_NAME and not self._statuses[model_name].ready:
+            self._load_harrier()
+        status = self._statuses[model_name]
+        if not status.ready:
+            raise RuntimeError(status.message)
+        return model_name
+
+    def _load_harrier(self) -> None:
+        with self._load_lock:
+            if self._statuses[HARRIER_MODEL_NAME].ready:
+                return
+            if not self._harrier_files_present(self.settings.harrier_model_path):
+                raise RuntimeError(self._statuses[HARRIER_MODEL_NAME].message)
+            try:
+                import torch
+                from transformers import AutoModel, AutoTokenizer
+
+                torch.set_num_threads(self.settings.torch_threads)
+                model_path = self.settings.harrier_model_path
+                self._harrier_tokenizer = AutoTokenizer.from_pretrained(
+                    model_path,
+                    local_files_only=True,
+                    trust_remote_code=False,
+                )
+                self._harrier_model = AutoModel.from_pretrained(
+                    model_path,
+                    local_files_only=True,
+                    trust_remote_code=False,
+                    dtype=torch.float32,
+                )
+                self._harrier_model.eval()
+                self._statuses[HARRIER_MODEL_NAME] = RuntimeStatus(
+                    True,
+                    "READY",
+                    "Harrier PyTorch CPU embedding runtime is ready.",
+                    HARRIER_MODEL_NAME,
+                )
+            except Exception as error:
+                self._statuses[HARRIER_MODEL_NAME] = RuntimeStatus(
+                    False,
+                    "ERROR",
+                    f"Harrier embedding runtime failed to load: {error}",
+                    HARRIER_MODEL_NAME,
+                )
+                raise RuntimeError(
+                    self._statuses[HARRIER_MODEL_NAME].message
+                ) from error
+
+    def _tokenizer(self, model_name: str) -> Any:
+        if model_name == HARRIER_MODEL_NAME:
+            return self._harrier_tokenizer
+        return self._granite_tokenizer
 
     def _embed_texts(
         self,
         texts: list[str],
+        model_name: str,
         max_context_length: int,
         normalize_embeddings: bool,
         reduced_dimension: int | None,
         *,
         truncate: bool,
     ) -> list[list[float]]:
+        if model_name == HARRIER_MODEL_NAME:
+            return self._embed_harrier(texts, max_context_length, truncate)
+
         tokenizer_options: dict[str, Any] = {
             "padding": True,
             "return_tensors": "np",
         }
         if truncate:
             tokenizer_options.update(truncation=True, max_length=max_context_length)
-        encoded = self._tokenizer(texts, **tokenizer_options)
+        encoded = self._granite_tokenizer(texts, **tokenizer_options)
         inputs = {
             "input_ids": encoded["input_ids"].astype(np.int64, copy=False),
             "attention_mask": encoded["attention_mask"].astype(np.int64, copy=False),
@@ -171,50 +317,139 @@ class EmbeddingRuntime:
             vectors = vectors[:, :reduced_dimension]
         return vectors.tolist()
 
-    def _content_token_count(self, text: str) -> int:
-        return len(self._tokenizer.encode(text, add_special_tokens=False))
+    def _embed_harrier(
+        self, texts: list[str], max_context_length: int, truncate: bool
+    ) -> list[list[float]]:
+        import torch
 
-    def _token_count(self, text: str) -> int:
-        return len(self._tokenizer.encode(text, add_special_tokens=True))
+        options: dict[str, Any] = {"padding": True, "return_tensors": "pt"}
+        if truncate:
+            options.update(truncation=True, max_length=max_context_length)
+        encoded = self._harrier_tokenizer(texts, **options)
+        with self._semaphore, torch.inference_mode():
+            outputs = self._harrier_model(**encoded)
+        vectors = self._last_token_pool(
+            outputs.last_hidden_state, encoded["attention_mask"]
+        )
+        if vectors.shape[1] != HARRIER_DIMENSION:
+            raise RuntimeError(
+                f"Harrier returned {vectors.shape[1]} dimensions; "
+                f"expected {HARRIER_DIMENSION}."
+            )
+        vectors_array = np.asarray(vectors.detach().float().cpu(), dtype=np.float32)
+        return self._normalize_vectors(vectors_array).tolist()
 
-    def _trim_to_tokens(self, text: str, max_tokens: int) -> str:
+    @staticmethod
+    def _last_token_pool(last_hidden_states: Any, attention_mask: Any) -> Any:
+        positions = [
+            len(row) - 1 if row[-1] else int(sum(row)) - 1
+            for row in attention_mask.tolist()
+        ]
+        return last_hidden_states[list(range(len(positions))), positions]
+
+    @staticmethod
+    def _normalize_vectors(vectors: np.ndarray) -> np.ndarray:
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        if np.any(norms == 0):
+            raise RuntimeError("Embedding model returned a zero vector.")
+        return vectors / norms
+
+    @staticmethod
+    def _harrier_files_present(model_path: Path) -> bool:
+        return all(
+            (model_path / name).is_file()
+            for name in ("config.json", "model.safetensors", "tokenizer.json")
+        )
+
+    @classmethod
+    def _harrier_initial_status(cls, model_path: Path) -> RuntimeStatus:
+        if cls._harrier_files_present(model_path):
+            return RuntimeStatus(
+                False,
+                "AVAILABLE",
+                "Harrier model files are available and will load on first use.",
+                HARRIER_MODEL_NAME,
+            )
+        return RuntimeStatus(
+            False,
+            "UNAVAILABLE",
+            f"Harrier model files are missing from {model_path}.",
+            HARRIER_MODEL_NAME,
+        )
+
+    @staticmethod
+    def _content_token_count(tokenizer: Any, text: str) -> int:
+        return len(tokenizer.encode(text, add_special_tokens=False))
+
+    @staticmethod
+    def _token_count(tokenizer: Any, text: str) -> int:
+        return len(tokenizer.encode(text, add_special_tokens=True))
+
+    @staticmethod
+    def _trim_to_tokens(tokenizer: Any, text: str, max_tokens: int) -> str:
         if not text or max_tokens < 1:
             return ""
-        token_ids = self._tokenizer.encode(text, add_special_tokens=False)
+        token_ids = tokenizer.encode(text, add_special_tokens=False)
         if len(token_ids) <= max_tokens:
             return text
-        return self._tokenizer.decode(
+        return tokenizer.decode(
             token_ids[:max_tokens], skip_special_tokens=True
         ).strip()
 
-    def _build_context(self, title: str, metadata_context: str, max_tokens: int) -> str:
+    def _build_context(
+        self, tokenizer: Any, title: str, metadata_context: str, max_tokens: int
+    ) -> str:
         metadata = self._fit_context(
+            tokenizer,
             metadata_context.strip(),
             min(MAX_METADATA_CONTEXT_TOKENS, max_tokens),
         )
         if not title.strip():
             return metadata
         title_prefix = f"{metadata}\nTitle: " if metadata else "Title: "
-        context = self._fit_context(title_prefix + title.strip(), max_tokens)
+        context = self._fit_context(tokenizer, title_prefix + title.strip(), max_tokens)
         return (
             context
             if context.startswith(title_prefix) and len(context) > len(title_prefix)
             else metadata
         )
 
-    def _fit_context(self, text: str, max_tokens: int) -> str:
-        context = self._trim_to_tokens(text, max_tokens)
-        while context and self._token_count(f"{context}\n\n") > max_tokens:
+    def _embedding_prefix(
+        self,
+        tokenizer: Any,
+        model_name: str,
+        title: str,
+        metadata_context: str,
+        manual_passage_prefix: str | None,
+        max_context_length: int,
+    ) -> str:
+        context_limit = min(MAX_CONTEXT_TOKENS, max_context_length // 4)
+        context = self._build_context(tokenizer, title, metadata_context, context_limit)
+        model_prefix = (
+            manual_passage_prefix
+            if model_name != HARRIER_MODEL_NAME and manual_passage_prefix
+            else ""
+        )
+        context_prefix = f"{context}\n\n" if context else ""
+        return model_prefix + context_prefix
+
+    def _fit_context(self, tokenizer: Any, text: str, max_tokens: int) -> str:
+        context = self._trim_to_tokens(tokenizer, text, max_tokens)
+        while context and self._token_count(tokenizer, f"{context}\n\n") > max_tokens:
             context = self._trim_to_tokens(
-                context, self._content_token_count(context) - 1
+                tokenizer,
+                context,
+                self._content_token_count(tokenizer, context) - 1,
             )
         return context
 
-    def _split_to_limit(self, text: str, prefix: str, max_tokens: int) -> list[str]:
-        if self._token_count(prefix + text) <= max_tokens:
+    def _split_to_limit(
+        self, tokenizer: Any, text: str, prefix: str, max_tokens: int
+    ) -> list[str]:
+        if self._token_count(tokenizer, prefix + text) <= max_tokens:
             return [text]
 
-        offsets = self._tokenizer(
+        offsets = tokenizer(
             text,
             add_special_tokens=False,
             return_offsets_mapping=True,
@@ -230,12 +465,13 @@ class EmbeddingRuntime:
                     pieces.append(text[start:])
                 break
 
-            content_budget = max_tokens - self._token_count(prefix)
+            content_budget = max_tokens - self._token_count(tokenizer, prefix)
             end_index = min(offset_index + content_budget, len(offsets))
             candidate_end = offsets[end_index - 1][1]
             while (
                 end_index > offset_index
-                and self._token_count(prefix + text[start:candidate_end]) > max_tokens
+                and self._token_count(tokenizer, prefix + text[start:candidate_end])
+                > max_tokens
             ):
                 end_index -= 1
                 if end_index > offset_index:

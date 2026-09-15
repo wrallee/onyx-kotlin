@@ -29,9 +29,10 @@ directory:
 
 See `MODELS.md` for revisions and SHA-256 values.
 
-The Python service runs Granite INT8 through the OpenVINO Python API. The current
-model-server and Kotlin search do not expose or call a reranker. The optional GTE
-and BGE artifacts remain available for evaluation.
+The Python service runs Granite INT8 through the OpenVINO Python API. It can also
+load a user-mounted Harrier 0.6B model with PyTorch. The Kotlin backend can call
+an OpenAI-compatible embedding endpoint directly. The current search does not
+call a reranker. The optional GTE and BGE artifacts remain available for evaluation.
 
 ## Run
 
@@ -58,6 +59,9 @@ docker compose config -q
 docker compose build
 docker compose up -d
 ```
+
+To use Harrier, mount its files read-only under `models/harrier-oss-v1-0.6b`.
+The repository does not download or verify this optional artifact.
 
 For an isolated stack, use a separate project, port, subnet, and read-only model path:
 

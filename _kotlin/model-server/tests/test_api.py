@@ -9,11 +9,13 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client(monkeypatch) -> TestClient:
     def load_embedding() -> None:
-        embedding_runtime.status = RuntimeStatus(
-            True,
-            "READY",
-            "test embedding ready",
-            embedding_runtime.settings.embedding_model_name,
+        embedding_runtime._statuses[embedding_runtime.settings.embedding_model_name] = (
+            RuntimeStatus(
+                True,
+                "READY",
+                "test embedding ready",
+                embedding_runtime.settings.embedding_model_name,
+            )
         )
 
     monkeypatch.setattr(embedding_runtime, "load", load_embedding)
@@ -24,6 +26,13 @@ def client(monkeypatch) -> TestClient:
 def test_health_contract(client: TestClient) -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
+
+
+def test_model_status_reports_optional_harrier(client: TestClient) -> None:
+    response = client.get("/api/model-status")
+
+    assert response.status_code == 200
+    assert "microsoft/harrier-oss-v1-0.6b" in response.json()["models"]
 
 
 def test_embed_contract_with_fake_runtime(monkeypatch, client: TestClient) -> None:
@@ -77,3 +86,36 @@ def test_chunk_and_embed_contract_with_fake_runtime(
             }
         ]
     }
+
+
+def test_chunk_contract_exposes_prepared_embedding_text(
+    monkeypatch, client: TestClient
+) -> None:
+    monkeypatch.setattr(
+        embedding_runtime,
+        "prepare_chunks",
+        lambda request: (
+            request.model_name,
+            [(request.text, "Title: 테스트\n\n" + request.text, 12)],
+        ),
+    )
+
+    response = client.post(
+        "/encoder/chunk",
+        json={
+            "text": "본문",
+            "title": "테스트",
+            "model_name": embedding_runtime.settings.embedding_model_name,
+            "max_context_length": 512,
+            "normalize_embeddings": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["chunks"] == [
+        {
+            "content": "본문",
+            "embedding_text": "Title: 테스트\n\n본문",
+            "token_count": 12,
+        }
+    ]

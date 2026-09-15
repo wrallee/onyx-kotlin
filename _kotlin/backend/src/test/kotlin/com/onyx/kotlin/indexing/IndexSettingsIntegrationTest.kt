@@ -1,11 +1,14 @@
 package com.onyx.kotlin.indexing
 
 import com.onyx.kotlin.api.ApiException
+import com.onyx.kotlin.model.EmbeddingExecutionConfig
+import com.onyx.kotlin.model.ModelServerClient
 import com.onyx.kotlin.support.H2IntegrationTest
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mockingDetails
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.dao.DataIntegrityViolationException
@@ -17,6 +20,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
+import org.springframework.test.context.bean.override.mockito.MockitoBean
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -27,6 +31,7 @@ class IndexSettingsIntegrationTest : H2IntegrationTest() {
     @Autowired private lateinit var searchSettings: SearchSettingsRepository
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var mvc: MockMvc
+    @MockitoBean private lateinit var modelServer: ModelServerClient
 
     @BeforeEach
     fun resetDatabase() {
@@ -116,6 +121,35 @@ class IndexSettingsIntegrationTest : H2IntegrationTest() {
             ),
         )
         assertThat(storedApiKey()).isEqualTo(encrypted)
+
+        val pending = settings.savePending(request("remote", EmbeddingProviderType.OPENAI_COMPATIBLE))
+        assertThat(settings.executionConfig(pending.id).provider?.apiKey).isEqualTo("secret")
+    }
+
+    @Test
+    fun embeddingTestBuildsValidatedRuntimeConfiguration() {
+        mvc.perform(
+            post("/admin/embedding/test-embedding")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """{"model_name":"microsoft/harrier-oss-v1-0.6b","model_dim":1024,"normalize":true}""",
+                ),
+        ).andExpect(status().isOk)
+
+        val config = mockingDetails(modelServer).invocations.single { it.method.name == "test" }
+            .arguments.single() as EmbeddingExecutionConfig
+        assertThat(config.modelName).isEqualTo("microsoft/harrier-oss-v1-0.6b")
+        assertThat(config.modelDim).isEqualTo(1024)
+        assertThat(config.provider).isNull()
+    }
+
+    @Test
+    fun providerUrlMustBeAnAbsoluteHttpEndpoint() {
+        assertThatThrownBy {
+            settings.saveProvider(
+                EmbeddingProviderRequest(EmbeddingProviderType.OPENAI_COMPATIBLE, "file:///tmp/model", null),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test

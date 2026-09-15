@@ -2,6 +2,10 @@ package com.onyx.kotlin.indexing
 
 import com.onyx.kotlin.api.ApiException
 import com.onyx.kotlin.config.OnyxProperties
+import com.onyx.kotlin.model.EmbeddingExecutionConfig
+import com.onyx.kotlin.model.DEFAULT_LOCAL_EMBEDDING_MODEL
+import com.onyx.kotlin.model.OpenAiCompatibleEmbeddingProvider
+import com.onyx.kotlin.model.requireValidEmbeddingProviderUrl
 import com.onyx.kotlin.opensearch.OpenSearchIndexMigrationLockRepository
 import com.onyx.kotlin.security.CredentialCipher
 import org.springframework.boot.ApplicationArguments
@@ -72,11 +76,12 @@ class IndexSettingsService(
         indexLock.lock()
         val existing = providers.findById(request.providerType).orElse(null)
         val running = searchSettings.findByStatus(IndexModelStatus.FUTURE)?.reindexStartedAt != null
-        if (running && existing?.apiUrl != request.apiUrl.trim()) {
+        val apiUrl = requireValidEmbeddingProviderUrl(request.apiUrl)
+        if (running && existing?.apiUrl != apiUrl) {
             throw ApiException(HttpStatus.CONFLICT, "Embedding provider URL cannot change during reindex")
         }
         val provider = existing ?: EmbeddingProviderEntity(providerType = request.providerType)
-        provider.apiUrl = request.apiUrl.trim()
+        provider.apiUrl = apiUrl
         if (request.apiKey != null && request.apiKey != MASK) {
             provider.apiKeyEncrypted = cipher.encrypt(mapper.createObjectNode().put("api_key", request.apiKey))
         }
@@ -96,10 +101,39 @@ class IndexSettingsService(
         providers.deleteById(providerType)
     }
 
+    @Transactional(readOnly = true)
+    fun executionConfig(settingsId: Long): EmbeddingExecutionConfig =
+        searchSettings.findById(settingsId).orElseThrow {
+            ApiException(HttpStatus.NOT_FOUND, "Search settings not found")
+        }.executionConfig()
+
+    @Transactional(readOnly = true)
+    fun executionConfig(request: TestEmbeddingRequest): EmbeddingExecutionConfig {
+        val provider = request.providerType?.let { providerType ->
+            val stored = providers.findById(providerType).orElse(null)
+            val apiUrl = request.apiUrl?.takeIf(String::isNotBlank) ?: stored?.apiUrl
+                ?: throw ApiException(HttpStatus.BAD_REQUEST, "Embedding provider URL is required")
+            val apiKey = when (request.apiKey) {
+                null, MASK -> stored?.decryptedApiKey()
+                else -> request.apiKey
+            }
+            OpenAiCompatibleEmbeddingProvider(requireValidEmbeddingProviderUrl(apiUrl), apiKey)
+        }
+        return EmbeddingExecutionConfig(
+            modelName = request.modelName.trim(),
+            modelDim = request.modelDim,
+            normalize = request.normalize,
+            maxContextLength = properties.modelServer.maxContextLength,
+            queryPrefix = request.queryPrefix,
+            passagePrefix = request.passagePrefix,
+            provider = provider,
+        )
+    }
+
     private fun currentEntity(): SearchSettingsEntity = searchSettings.findByStatus(IndexModelStatus.PRESENT)
         ?: searchSettings.save(
             SearchSettingsEntity(
-                modelName = properties.modelServer.modelName.ifBlank { DEFAULT_MODEL },
+                modelName = properties.modelServer.modelName.ifBlank { DEFAULT_LOCAL_EMBEDDING_MODEL },
                 modelDim = properties.modelServer.embeddingDimension,
                 normalize = properties.modelServer.normalizeEmbeddings,
                 indexName = properties.opensearch.index,
@@ -120,6 +154,28 @@ class IndexSettingsService(
         cancelRequestedAt = cancelRequestedAt,
     )
 
+    private fun SearchSettingsEntity.executionConfig(): EmbeddingExecutionConfig {
+        val provider = providerType?.let { type ->
+            val stored = providers.findById(type).orElseThrow {
+                ApiException(HttpStatus.BAD_REQUEST, "Embedding provider is not configured")
+            }
+            OpenAiCompatibleEmbeddingProvider(stored.apiUrl, stored.decryptedApiKey())
+        }
+        return EmbeddingExecutionConfig(
+            modelName = modelName,
+            modelDim = modelDim,
+            normalize = normalize,
+            maxContextLength = properties.modelServer.maxContextLength,
+            queryPrefix = queryPrefix,
+            passagePrefix = passagePrefix,
+            provider = provider,
+        )
+    }
+
+    private fun EmbeddingProviderEntity.decryptedApiKey(): String? = apiKeyEncrypted?.let {
+        cipher.decrypt(it).path("api_key").asString().takeIf(String::isNotBlank)
+    }
+
     private fun EmbeddingProviderEntity.response() = EmbeddingProviderResponse(
         providerType = providerType,
         apiUrl = apiUrl,
@@ -127,7 +183,6 @@ class IndexSettingsService(
     )
 
     private companion object {
-        const val DEFAULT_MODEL = "ibm-granite/granite-embedding-311m-multilingual-r2"
         const val MASK = "********"
     }
 }

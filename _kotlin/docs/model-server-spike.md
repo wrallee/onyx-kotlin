@@ -28,6 +28,11 @@ not silently select Python.
 
 ## Active FOSS model-server contract
 
+The Kotlin port extends this baseline contract. Its Python model server routes
+Granite through OpenVINO and an optional user-mounted Harrier model through
+PyTorch. The Kotlin backend calls configured OpenAI-compatible providers
+directly. The contract below records the original Python baseline.
+
 `model_server.main` only mounts `management_endpoints.router` and
 `encoders.router`. The files under `backend/model_server/legacy` are not
 mounted; their reranker and intent routes are commented out. Cloud embedding

@@ -3,6 +3,7 @@ package com.onyx.kotlin.indexing
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Positive
+import com.onyx.kotlin.model.ModelServerClient
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -49,10 +50,24 @@ data class EmbeddingProviderResponse(
     val apiKey: String?,
 )
 
+data class TestEmbeddingRequest(
+    @field:NotBlank val modelName: String,
+    @field:Positive val modelDim: Int,
+    val normalize: Boolean = true,
+    val queryPrefix: String? = null,
+    val passagePrefix: String? = null,
+    val providerType: EmbeddingProviderType? = null,
+    val apiUrl: String? = null,
+    val apiKey: String? = null,
+)
+
 data class IdResponse(val id: Long)
 
 @RestController
-class IndexSettingsController(private val settings: IndexSettingsService) {
+class IndexSettingsController(
+    private val settings: IndexSettingsService,
+    private val modelServer: ModelServerClient,
+) {
     @GetMapping("/search-settings/get-current-search-settings")
     fun current(): SearchSettingsResponse = settings.current()
 
@@ -68,6 +83,13 @@ class IndexSettingsController(private val settings: IndexSettingsService) {
     @PutMapping("/admin/embedding/embedding-provider")
     fun saveProvider(@Valid @RequestBody request: EmbeddingProviderRequest): EmbeddingProviderResponse =
         settings.saveProvider(request)
+
+    @PostMapping("/admin/embedding/test-embedding")
+    fun testEmbedding(@Valid @RequestBody request: TestEmbeddingRequest) =
+        modelServer.test(settings.executionConfig(request))
+
+    @GetMapping("/admin/embedding/model-status")
+    fun modelStatus() = modelServer.modelStatus()
 
     @DeleteMapping("/admin/embedding/embedding-provider/{providerType}")
     fun deleteProvider(@PathVariable providerType: String) = settings.deleteProvider(
