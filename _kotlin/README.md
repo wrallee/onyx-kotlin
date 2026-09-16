@@ -27,15 +27,14 @@ directory:
 - GTE multilingual reranker-base
 - BGE reranker v2 m3 candidate
 
-See `MODELS.md` for revisions and SHA-256 values.
+See `model-server/MODELS.md` for revisions and SHA-256 values.
 
-The Python service uses the existing SentenceTransformers flow for local models.
-Granite uses an OpenVINO INT8 optimization branch. Harrier loads from a user mount
-through SentenceTransformers and PyTorch. The Kotlin backend can call an
-OpenAI-compatible embedding endpoint through the same model-server contract.
-The provider branch does not resolve or use a local embedding model. The current
-search does not call a reranker. The optional GTE and BGE artifacts remain
-available for evaluation.
+The Kotlin backend sends every chunking and embedding request to the Python
+model-server. Granite uses OpenVINO INT8. Harrier loads from a user mount through
+SentenceTransformers and PyTorch. OpenAI-compatible requests use only the
+configured endpoint and do not load a local embedding model. The current search
+does not call a reranker. The optional GTE and BGE artifacts remain available for
+evaluation.
 
 ## Run
 
