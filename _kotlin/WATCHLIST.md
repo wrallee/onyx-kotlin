@@ -93,17 +93,20 @@ timezone: Asia/Seoul
 - result: Python 기능 범위에서는 댓글 수집을 제공하지 않는다. 현재 Kotlin의 인라인 댓글 결합도 제거하고 PR 본문만 색인한다.
 - next_step_on_fail: PR 본문만 수집하는 현재 기준을 유지한다.
 
-### WL-20260911-001 - cross-pair 중복 문서의 최신 복사본 선택
+### WL-20260911-001 - 신선도 설계 후속: 최신본 선택·삭제 반영·날짜 정확성
 - status: open
-- priority: P1
+- priority: P2
 - owner: both
 - due_at: unscheduled
 - created_at: 2026-09-11T07:20:19+09:00
-- source: PR #25; backend/src/main/kotlin/com/onyx/kotlin/opensearch/OpenSearchIndexer.kt; fix/mcp-filter-contract f1e82cfd1
-- trigger: 서로 다른 base URL은 source_document_id로 구분되지만, 같은 논리 문서를 여러 ccPair가 다른 시점에 색인하면 hybrid collapse가 최신본 대신 검색 점수가 높은 복사본을 선택할 수 있다. keyword와 semantic 검색은 cross-pair collapse를 적용하지 않는다.
-- action: 정규화한 논리 문서 ID와 최신본 우선 atomic upsert를 PR #25 이후 통합하고, pair별 membership과 삭제 동작을 함께 검증한다.
-- done_when: 서로 다른 base URL의 동일 문서 번호는 분리되고, 같은 논리 문서의 구버전과 신버전이 함께 있어도 keyword·semantic·hybrid 검색과 context가 최신 내용만 반환한다.
-- next_step_on_fail: 색인 단계의 최신본 통합과 검색 단계의 최신본 선택 중 더 작은 공통 수정 지점을 다시 비교한다.
+- source: PR #25; backend/src/main/kotlin/com/onyx/kotlin/opensearch/OpenSearchIndexer.kt; fix/mcp-filter-contract f1e82cfd1; 신선도 필터링 설계 검토 및 사용자 우선순위 조정, 2026-09-16; main-v4.6.5 fd549fbe7
+- trigger: 같은 논리 문서를 여러 ccPair가 다른 시점에 색인하면 keyword·semantic·hybrid의 청크 중복 제거가 최신본 대신 검색 점수가 높은 복사본을 선택할 수 있다. 삭제 확인 주기와 원천별 날짜 의미에도 후속 점검이 필요하다.
+- action: 문서 유효성 평가와 질문별 신선도 검색 정책의 큰 구조를 먼저 설계한다. 아래 세부 항목은 별도 후속 작업으로 검토하며, 큰 구조의 설계·적용을 막는 선행 조건으로 두지 않는다.
+- deferred_checks: 연결 간 최신 문서 선택과 pair별 소속 보존; 청크 교체 중 실패 시 버전 혼재; URL 변경에도 유지되는 원본 식별자; 증분 수집과 삭제 점검 주기 분리; 전체 목록에서의 존재 확인 시각과 색인 시각 구분; GitHub 파일의 저장소 push 시각과 파일 수정일 구분; 날짜 없는 파일 처리; 과거 버전 보존과 시점 조회는 요구가 확정된 뒤 검토.
+- done_when: 후속 구현 범위가 정해지고 관련 회귀 검증을 통과한다. 최신본 선택은 서로 다른 원천을 구분하고 pair별 소속을 보존하며 세 검색 방식과 context에서 문서 버전이 일치해야 한다. 삭제·날짜 보완은 불완전 수집의 오삭제와 날짜 오해를 방지해야 한다.
+- last_checked_at: 2026-09-16T22:52:07+09:00
+- result: fd549fbe7 소스와 기존 테스트를 검토했다. 세 검색 방식 모두 논리 청크 중복 제거를 적용하지만 최신 버전을 보장하지는 않는다. 삭제 점검 UI 기본값은 7일이고 실제 연결별 설정은 미확인이다. GitHub 파일 수정일은 저장소 pushedAt이며 업로드 파일 날짜는 없을 수 있다. 사용자는 회사 데이터가 급격히 바뀌지 않으므로 이 세부 보완을 후순위로 두고, 신선도 필터링의 전체 구조를 우선하도록 지시했다. 이번에는 기록만 변경했고 제품 코드는 수정하지 않았다.
+- next_step_on_fail: 전체 신선도 정책을 평가할 때 구버전 복사본·삭제 지연·날짜 오해가 실제 오류 원인으로 드러나거나 해당 운영 요구가 생기면 관련 항목만 구체화한다.
 
 ### WL-20260911-002 - GitHub REST 수집 비용과 증분 효율 확인
 - status: open
