@@ -1,10 +1,11 @@
 package com.onyx.kotlin.api
 
+import com.onyx.kotlin.indexing.IndexSettingsService
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-class SettingsController {
+class SettingsController(private val indexSettings: IndexSettingsService) {
     @GetMapping("/settings")
     fun settings(): Map<String, Any?> = mapOf(
         "anonymous_user_enabled" to false,
@@ -14,7 +15,7 @@ class SettingsController {
         "company_name" to null,
         "company_description" to null,
         "notifications" to emptyList<Any>(),
-        "needs_reindexing" to false,
+        "needs_reindexing" to indexSettings.needsReindexing(),
         "gpu_enabled" to false,
         "application_status" to "active",
         "auto_scroll" to true,
