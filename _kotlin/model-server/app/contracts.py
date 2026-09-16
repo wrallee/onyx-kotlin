@@ -32,7 +32,27 @@ class EmbedResponse(BaseModel):
     embeddings: list[list[float]]
 
 
+class ChunkEmbedRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    text: str
+    title: str = ""
+    metadata_context: str = ""
+    model_name: str | None = None
+    max_context_length: int = Field(default=512, ge=1, le=32768)
+    normalize_embeddings: bool = True
+
+
+class EmbeddedChunk(BaseModel):
+    content: str
+    embedding: list[float]
+    token_count: int
+
+
+class ChunkEmbedResponse(BaseModel):
+    chunks: list[EmbeddedChunk]
+
+
 class ApiError(BaseModel):
     code: str
     message: str
-

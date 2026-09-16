@@ -1,18 +1,30 @@
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from fastapi.responses import JSONResponse
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 from app.config import Settings
-from app.contracts import ApiError, EmbedRequest, EmbedResponse
+from app.contracts import (
+    ApiError,
+    ChunkEmbedRequest,
+    ChunkEmbedResponse,
+    EmbeddedChunk,
+    EmbedRequest,
+    EmbedResponse,
+)
 from app.runtime import EmbeddingRuntime
 
 logging.basicConfig(level=logging.INFO)
@@ -67,7 +79,9 @@ async def invalid_request(_: Any, error: ValueError):
 async def runtime_unavailable(_: Any, error: RuntimeError):
     return JSONResponse(
         status_code=503,
-        content=ApiError(code="MODEL_RUNTIME_UNAVAILABLE", message=str(error)).model_dump(),
+        content=ApiError(
+            code="MODEL_RUNTIME_UNAVAILABLE", message=str(error)
+        ).model_dump(),
     )
 
 
@@ -120,3 +134,26 @@ async def embed(request: EmbedRequest) -> EmbedResponse:
         raise
     finally:
         LATENCY.labels("embed").observe(time.perf_counter() - started)
+
+
+@app.post("/encoder/chunk-and-embed", response_model=ChunkEmbedResponse)
+async def chunk_and_embed(request: ChunkEmbedRequest) -> ChunkEmbedResponse:
+    started = time.perf_counter()
+    try:
+        chunks = await run_in_threadpool(embedding_runtime.chunk_and_embed, request)
+        REQUESTS.labels("chunk_embed", "success").inc()
+        return ChunkEmbedResponse(
+            chunks=[
+                EmbeddedChunk(
+                    content=content,
+                    embedding=embedding,
+                    token_count=token_count,
+                )
+                for content, embedding, token_count in chunks
+            ]
+        )
+    except Exception:
+        REQUESTS.labels("chunk_embed", "error").inc()
+        raise
+    finally:
+        LATENCY.labels("chunk_embed").observe(time.perf_counter() - started)

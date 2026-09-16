@@ -13,6 +13,7 @@ import com.onyx.kotlin.connector.loader.SourceDocument
 import com.onyx.kotlin.documentset.DocumentSetRepository
 import com.onyx.kotlin.model.ModelServerClient
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
+import com.onyx.kotlin.search.IndexedMetadata
 import com.onyx.kotlin.opensearch.PairExternalWriteFence
 import com.onyx.kotlin.connector.ConnectorService
 import org.springframework.stereotype.Service
@@ -117,19 +118,21 @@ class IngestionProcessor(
                         return@forEach
                     }
                     val indexableContent = document.content.ifBlank { document.title }
-                    val chunks = indexableContent.chunked(1500).filter { it.isNotBlank() }
+                    val indexedMetadata = IndexedMetadata.from(connector.source, document.metadata)
+                    val chunks = withLeaseHeartbeat(claim) {
+                        embedder.chunkAndEmbed(
+                            indexableContent,
+                            document.title,
+                            indexedMetadata.embeddingContext(connector.source),
+                        )
+                    }
                     if (chunks.isEmpty()) {
                         enumerationSafe = false
                         return@forEach
                     }
                     renew(claim)
-                    val vectors = withLeaseHeartbeat(claim) { embedder.embed(chunks) }
-                    check(vectors.size == chunks.size) {
-                        "Model server returned ${vectors.size} embeddings for ${chunks.size} chunks"
-                    }
-                    renew(claim)
                     val documentSetNames = documentSets.findNamesByCcPairId(requireNotNull(pair.id))
-                    chunks.zip(vectors).forEachIndexed { index, item ->
+                    chunks.forEachIndexed { index, chunk ->
                         externalWrites.withPair(requireNotNull(pair.id)) {
                             renew(claim)
                             indexer.upsert(
@@ -137,15 +140,16 @@ class IngestionProcessor(
                                 sourceDocumentId = document.id,
                                 chunkId = index,
                                 title = document.title,
-                                content = item.first,
+                                content = chunk.content,
                                 link = document.link,
                                 metadata = document.metadata,
-                                embedding = item.second,
+                                embedding = chunk.embedding,
                                 documentSets = documentSetNames,
                                 updatedAt = document.updatedAt,
                                 primaryOwners = document.primaryOwners,
                                 secondaryOwners = document.secondaryOwners,
                                 sourceType = connector.source,
+                                indexedMetadata = indexedMetadata,
                             )
                         }
                         renew(claim)

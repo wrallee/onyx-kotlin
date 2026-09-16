@@ -4,6 +4,8 @@ import com.onyx.kotlin.config.OnyxProperties
 import com.onyx.kotlin.config.SearchProperties
 import com.onyx.kotlin.connector.ConnectorSource
 import com.onyx.kotlin.search.SearchCandidate
+import com.onyx.kotlin.search.IndexedMetadata
+import com.onyx.kotlin.search.SearchMetadataFilters
 import com.onyx.kotlin.opensearch.HybridNormalizationPipelineRegistry
 import com.onyx.kotlin.opensearch.OpenSearchChunkDocument
 import com.onyx.kotlin.opensearch.OpenSearchClientFactory
@@ -85,19 +87,22 @@ class OpenSearchIndexer(
         count: Int,
         sourceTypes: List<String> = emptyList(),
         updatedAfter: Instant? = null,
+        metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
     ): List<SearchCandidate> {
         require(query.isNotBlank()) { "query must not be blank" }
         require(count > 0) { "count must be positive" }
         ensureIndex()
 
-        val filter = searchFilter(documentSets, sourceTypes, updatedAfter)
+        val filter = searchFilter(documentSets, sourceTypes, updatedAfter, metadataFilters)
         val request = OpenSearchSearchRequest.Builder()
             .index(properties.indexName)
             .size(count)
             .query(Query.of { q ->
                 q.bool { b ->
                     b.must { m ->
-                        m.multiMatch { mm -> mm.query(query).fields(listOf("title^2", "content")) }
+                        m.multiMatch { mm ->
+                            mm.query(query).fields(listOf("title^2", "content", "search_context^0.5"))
+                        }
                     }
                     if (filter != null) {
                         b.filter(listOf(filter))
@@ -120,6 +125,7 @@ class OpenSearchIndexer(
         count: Int,
         sourceTypes: List<String> = emptyList(),
         updatedAfter: Instant? = null,
+        metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
     ): List<SearchCandidate> {
         require(queryEmbedding.size == modelServerDimension) {
             "query embedding dimension must be $modelServerDimension"
@@ -132,7 +138,7 @@ class OpenSearchIndexer(
             .field(EMBEDDING_FIELD)
             .vector(queryEmbedding.map { it.toFloat() })
             .k(candidateCount)
-        searchFilter(documentSets, sourceTypes, updatedAfter)?.let { knn.filter(it) }
+        searchFilter(documentSets, sourceTypes, updatedAfter, metadataFilters)?.let { knn.filter(it) }
 
         val request = OpenSearchSearchRequest.Builder()
             .index(properties.indexName)
@@ -154,6 +160,7 @@ class OpenSearchIndexer(
         limit: Int,
         sourceTypes: List<String> = emptyList(),
         updatedAfter: Instant? = null,
+        metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
     ): List<SearchCandidate> {
         require(query.isNotBlank()) { "query must not be blank" }
         require(queryEmbedding.size == modelServerDimension) {
@@ -169,7 +176,9 @@ class OpenSearchIndexer(
         val candidateCount = Math.multiplyExact(limit, searchProperties.hybridCandidateMultiplier)
 
         val keywordQuery = Query.of { q ->
-            q.multiMatch { mm -> mm.query(query).fields(listOf("title^2", "content")) }
+            q.multiMatch { mm ->
+                mm.query(query).fields(listOf("title^2", "content", "search_context^0.5"))
+            }
         }
         val vectorQuery = Query.of { q ->
             q.knn { knn ->
@@ -178,7 +187,7 @@ class OpenSearchIndexer(
                     .k(candidateCount)
             }
         }
-        val filter = searchFilter(documentSets, sourceTypes, updatedAfter)
+        val filter = searchFilter(documentSets, sourceTypes, updatedAfter, metadataFilters)
         val hybridQuery = Query.of { q ->
             q.hybrid { hybrid ->
                 hybrid.queries(listOf(keywordQuery, vectorQuery))
@@ -207,24 +216,26 @@ class OpenSearchIndexer(
         documentSets: List<String>,
         sourceTypes: List<String>,
         updatedAfter: Instant?,
+        metadataFilters: SearchMetadataFilters,
     ): Query? {
         val clauses = mutableListOf<Query>()
-        documentSets.distinct().takeIf { it.isNotEmpty() }?.let { sets ->
-            clauses += Query.of { q ->
-                q.terms { terms ->
-                    terms.field("document_sets")
-                        .terms { values -> values.value(sets.map { FieldValue.of(it) }) }
+        fun addTerms(field: String, values: List<String>) {
+            values.distinct().takeIf { it.isNotEmpty() }?.let { selected ->
+                clauses += Query.of { q ->
+                    q.terms { terms ->
+                        terms.field(field)
+                            .terms { termsValues -> termsValues.value(selected.map { FieldValue.of(it) }) }
+                    }
                 }
             }
         }
-        sourceTypes.distinct().takeIf { it.isNotEmpty() }?.let { sources ->
-            clauses += Query.of { q ->
-                q.terms { terms ->
-                    terms.field("source_type")
-                        .terms { values -> values.value(sources.map { FieldValue.of(it) }) }
-                }
-            }
-        }
+        addTerms("document_sets", documentSets)
+        addTerms("source_type", sourceTypes)
+        addTerms("project_key", metadataFilters.projectKeys)
+        addTerms("repository", metadataFilters.repositories)
+        addTerms("space", metadataFilters.spaces)
+        addTerms("status", metadataFilters.statuses)
+        addTerms("document_type", metadataFilters.documentTypes)
         if (updatedAfter != null) {
             clauses += Query.of { q ->
                 q.range { range ->
@@ -421,6 +432,7 @@ class OpenSearchIndexer(
         primaryOwners: List<String> = emptyList(),
         secondaryOwners: List<String> = emptyList(),
         sourceType: ConnectorSource? = null,
+        indexedMetadata: IndexedMetadata = IndexedMetadata(),
     ) {
         val documentId = Base64.getUrlEncoder().withoutPadding().encodeToString(
             (pairId.toString() + ":" + sourceDocumentId + ":" + chunkId).toByteArray(StandardCharsets.UTF_8),
@@ -437,6 +449,12 @@ class OpenSearchIndexer(
             metadata = metadata,
             embedding = embedding,
             sourceType = sourceType?.value,
+            projectKey = indexedMetadata.projectKey,
+            repository = indexedMetadata.repository,
+            space = indexedMetadata.space,
+            status = indexedMetadata.status,
+            documentType = indexedMetadata.documentType,
+            searchContext = indexedMetadata.searchContext(sourceType),
             documentSets = documentSets,
             docUpdatedAt = updatedAt?.toString(),
             primaryOwners = primaryOwners,
@@ -576,6 +594,12 @@ class OpenSearchIndexer(
             "metadata" to mapOf("type" to "object", "enabled" to false),
             EMBEDDING_FIELD to vectorFieldDefinition(),
             "source_type" to mapOf("type" to "keyword"),
+            "project_key" to mapOf("type" to "keyword"),
+            "repository" to mapOf("type" to "keyword"),
+            "space" to mapOf("type" to "keyword"),
+            "status" to mapOf("type" to "keyword"),
+            "document_type" to mapOf("type" to "keyword"),
+            "search_context" to mapOf("type" to "text", "analyzer" to "nori"),
             "document_sets" to mapOf("type" to "keyword"),
             "doc_updated_at" to mapOf("type" to "date"),
             "primary_owners" to mapOf("type" to "keyword"),

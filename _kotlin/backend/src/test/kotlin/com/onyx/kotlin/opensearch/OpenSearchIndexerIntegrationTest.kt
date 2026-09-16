@@ -4,7 +4,9 @@ import tools.jackson.databind.JsonNode
 import tools.jackson.databind.SerializationFeature
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.kotlin.config.SearchProperties
+import com.onyx.kotlin.search.IndexedMetadata
 import com.onyx.kotlin.search.SearchCandidate
+import com.onyx.kotlin.search.SearchMetadataFilters
 import com.onyx.kotlin.opensearch.HybridNormalizationPipelineRegistry
 import com.onyx.kotlin.opensearch.MinMaxNormalizationPipeline
 import com.onyx.kotlin.opensearch.OpenSearchClientFactory
@@ -174,6 +176,47 @@ class OpenSearchIndexerIntegrationTest {
         )
         assertThat(keyword.map { it.sourceDocumentId to it.chunkId }).containsExactlyInAnyOrder(*expected)
         assertThat(vector.map { it.sourceDocumentId to it.chunkId }).containsExactlyInAnyOrder(*expected)
+    }
+
+    @Test
+    fun metadataFiltersApplyToKeywordVectorAndHybridSearch() {
+        val writer = indexer()
+        val matchingMetadata = IndexedMetadata(
+            projectKey = "eng",
+            repository = "org/api",
+            status = "open",
+            documentType = "github_issue",
+        )
+        writer.upsert(
+            7, "matching", 0, "Matching", "metadata needle", null, emptyMap(), vector(0.1),
+            indexedMetadata = matchingMetadata,
+        )
+        writer.upsert(
+            7, "other-repository", 0, "Other", "metadata needle", null, emptyMap(), vector(0.1),
+            indexedMetadata = matchingMetadata.copy(repository = "org/web"),
+        )
+        val filters = SearchMetadataFilters(
+            projectKeys = listOf("eng"),
+            repositories = listOf("org/api"),
+            statuses = listOf("open"),
+            documentTypes = listOf("github_issue"),
+        )
+
+        val keyword = writer.keywordSearch("metadata needle", emptyList(), 10, metadataFilters = filters)
+        val vector = writer.vectorSearch(vector(0.1), emptyList(), 10, metadataFilters = filters)
+        val hybrid = hybridIndexer(SearchProperties()).hybridSearch(
+            "metadata needle",
+            vector(0.1),
+            emptyList(),
+            10,
+            metadataFilters = filters,
+        )
+        val keywordByContext = writer.keywordSearch("api", emptyList(), 10)
+
+        assertThat(keyword.map(SearchCandidate::sourceDocumentId)).containsExactly("matching")
+        assertThat(vector.map(SearchCandidate::sourceDocumentId)).containsExactly("matching")
+        assertThat(hybrid.map(SearchCandidate::sourceDocumentId)).containsExactly("matching")
+        assertThat(keywordByContext.map(SearchCandidate::sourceDocumentId)).containsExactly("matching")
     }
 
     @Test

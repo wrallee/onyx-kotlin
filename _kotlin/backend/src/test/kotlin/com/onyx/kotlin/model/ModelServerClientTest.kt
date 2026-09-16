@@ -65,6 +65,34 @@ class ModelServerClientTest {
     }
 
     @Test
+    fun `chunk and embed sends context and preserves chunk order`(): Unit = MockWebServer().use { server ->
+        server.enqueue(
+            MockResponse().setHeader("Content-Type", "application/json")
+                .setBody(
+                    """{"chunks":[{"content":"first","embedding":[0.1],"token_count":10},{"content":"second","embedding":[0.2],"token_count":11}]}""",
+                ),
+        )
+        server.start()
+        val client = client(server)
+
+        assertThat(client.chunkAndEmbed("first second", "Example", "Source: file"))
+            .containsExactly(
+                ModelServerClient.ChunkEmbedding("first", listOf(0.1), 10),
+                ModelServerClient.ChunkEmbedding("second", listOf(0.2), 11),
+            )
+
+        val request = server.takeRequest()
+        val body = jacksonObjectMapper().readTree(request.body.readUtf8())
+        assertThat(request.path).isEqualTo("/encoder/chunk-and-embed")
+        assertThat(body.path("text").asString()).isEqualTo("first second")
+        assertThat(body.path("title").asString()).isEqualTo("Example")
+        assertThat(body.path("metadata_context").asString()).isEqualTo("Source: file")
+        assertThat(body.path("model_name").asString()).isEqualTo("test-model")
+        assertThat(body.path("max_context_length").asInt()).isEqualTo(512)
+        assertThat(body.path("normalize_embeddings").asBoolean()).isTrue()
+    }
+
+    @Test
     fun readTimeoutAppliesToEmbeddingResponse(): Unit = MockWebServer().use { server ->
         server.enqueue(
             MockResponse()
@@ -176,6 +204,7 @@ class ModelServerClientTest {
             modelServer = OnyxProperties.ModelServer(
                 baseUrl = server.url("/").toString(),
                 modelName = "test-model",
+                embeddingDimension = 1,
                 connectTimeoutMs = connectTimeoutMs,
                 readTimeoutMs = readTimeoutMs,
                 embedMaxRetries = embedMaxRetries,
