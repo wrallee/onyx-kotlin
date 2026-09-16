@@ -20,6 +20,8 @@ class Settings:
     harrier_model_path: Path
     inference_concurrency: int
     torch_threads: int
+    provider_connect_timeout_seconds: float = 30.0
+    provider_read_timeout_seconds: float = 600.0
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -45,4 +47,12 @@ class Settings:
                 1, int(os.getenv("MODEL_INFERENCE_CONCURRENCY", "1"))
             ),
             torch_threads=max(1, int(os.getenv("TORCH_NUM_THREADS", "4"))),
+            provider_connect_timeout_seconds=max(
+                0.001,
+                int(os.getenv("MODEL_SERVER_CONNECT_TIMEOUT_MS", "30000")) / 1000,
+            ),
+            provider_read_timeout_seconds=max(
+                0.001,
+                int(os.getenv("MODEL_SERVER_READ_TIMEOUT_MS", "600000")) / 1000,
+            ),
         )

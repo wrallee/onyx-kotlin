@@ -111,13 +111,15 @@ class IndexSettingsService(
     fun executionConfig(request: TestEmbeddingRequest): EmbeddingExecutionConfig {
         val provider = request.providerType?.let { providerType ->
             val stored = providers.findById(providerType).orElse(null)
-            val apiUrl = request.apiUrl?.takeIf(String::isNotBlank) ?: stored?.apiUrl
-                ?: throw ApiException(HttpStatus.BAD_REQUEST, "Embedding provider URL is required")
+            val apiUrl = requireValidEmbeddingProviderUrl(
+                request.apiUrl?.takeIf(String::isNotBlank) ?: stored?.apiUrl
+                    ?: throw ApiException(HttpStatus.BAD_REQUEST, "Embedding provider URL is required"),
+            )
             val apiKey = when (request.apiKey) {
-                null, MASK -> stored?.decryptedApiKey()
+                null, MASK -> stored?.decryptedApiKey().takeIf { stored?.apiUrl == apiUrl }
                 else -> request.apiKey
             }
-            OpenAiCompatibleEmbeddingProvider(requireValidEmbeddingProviderUrl(apiUrl), apiKey)
+            OpenAiCompatibleEmbeddingProvider(apiUrl, apiKey)
         }
         return EmbeddingExecutionConfig(
             modelName = request.modelName.trim(),

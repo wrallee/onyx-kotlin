@@ -144,6 +144,39 @@ class IndexSettingsIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
+    fun embeddingTestDoesNotSendStoredKeyToAnotherUrl() {
+        settings.saveProvider(
+            EmbeddingProviderRequest(
+                EmbeddingProviderType.OPENAI_COMPATIBLE,
+                "https://stored.example/v1/embeddings",
+                "secret",
+            ),
+        )
+
+        val config = settings.executionConfig(
+            TestEmbeddingRequest(
+                modelName = "remote-model",
+                modelDim = 768,
+                providerType = EmbeddingProviderType.OPENAI_COMPATIBLE,
+                apiUrl = "https://other.example/v1/embeddings",
+            ),
+        )
+
+        assertThat(config.provider?.apiUrl).isEqualTo("https://other.example/v1/embeddings")
+        assertThat(config.provider?.apiKey).isNull()
+
+        val storedUrlConfig = settings.executionConfig(
+            TestEmbeddingRequest(
+                modelName = "remote-model",
+                modelDim = 768,
+                providerType = EmbeddingProviderType.OPENAI_COMPATIBLE,
+                apiUrl = "  https://stored.example/v1/embeddings  ",
+            ),
+        )
+        assertThat(storedUrlConfig.provider?.apiKey).isEqualTo("secret")
+    }
+
+    @Test
     fun providerUrlMustBeAnAbsoluteHttpEndpoint() {
         assertThatThrownBy {
             settings.saveProvider(

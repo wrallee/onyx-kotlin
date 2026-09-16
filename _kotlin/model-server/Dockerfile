@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
+    TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache \
     HOME=/tmp
 
 RUN apt-get update \
@@ -14,7 +15,9 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.9.1 \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && mkdir -p "$TIKTOKEN_CACHE_DIR" \
+    && python -c "import tiktoken; [tiktoken.get_encoding(name) for name in tiktoken.list_encoding_names()]"
 
 COPY app ./app
 

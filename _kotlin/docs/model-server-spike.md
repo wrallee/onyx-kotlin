@@ -28,10 +28,17 @@ not silently select Python.
 
 ## Active FOSS model-server contract
 
-The Kotlin port extends this baseline contract. Its Python model server routes
-Granite through OpenVINO and an optional user-mounted Harrier model through
-PyTorch. The Kotlin backend calls configured OpenAI-compatible providers
-directly. The contract below records the original Python baseline.
+The Kotlin port extends this baseline contract. Its Python model server keeps
+SentenceTransformers as the local model path. Granite selects an OpenVINO INT8
+optimization branch. Optional Harrier loads from a user mount through
+SentenceTransformers and PyTorch. The Kotlin backend always calls the model
+server. For an OpenAI-compatible provider, the model server uses an API
+tokenizer and the configured endpoint without resolving a local model. The
+contract below records the original Python baseline.
+
+The active port loads a local model on its first local request. It does not
+pre-warm local weights at service startup because an API-only deployment must
+not load a second embedding model.
 
 `model_server.main` only mounts `management_endpoints.router` and
 `encoders.router`. The files under `backend/model_server/legacy` are not

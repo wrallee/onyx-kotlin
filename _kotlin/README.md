@@ -29,10 +29,13 @@ directory:
 
 See `MODELS.md` for revisions and SHA-256 values.
 
-The Python service runs Granite INT8 through the OpenVINO Python API. It can also
-load a user-mounted Harrier 0.6B model with PyTorch. The Kotlin backend can call
-an OpenAI-compatible embedding endpoint directly. The current search does not
-call a reranker. The optional GTE and BGE artifacts remain available for evaluation.
+The Python service uses the existing SentenceTransformers flow for local models.
+Granite uses an OpenVINO INT8 optimization branch. Harrier loads from a user mount
+through SentenceTransformers and PyTorch. The Kotlin backend can call an
+OpenAI-compatible embedding endpoint through the same model-server contract.
+The provider branch does not resolve or use a local embedding model. The current
+search does not call a reranker. The optional GTE and BGE artifacts remain
+available for evaluation.
 
 ## Run
 

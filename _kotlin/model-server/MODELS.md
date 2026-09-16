@@ -23,8 +23,14 @@ Verified files:
 ## Optional Harrier embedding
 
 - Repository: `microsoft/harrier-oss-v1-0.6b`
-- Runtime format: PyTorch CPU, 1024 output dimensions, last-token pooling
+- Runtime format: SentenceTransformers with PyTorch CPU, 1024 output dimensions
 - Default local directory: `models/harrier-oss-v1-0.6b`
 
 The operator supplies this model through a read-only mount. This repository
 does not download, pin, or verify the Harrier files.
+
+## OpenAI-compatible API embedding
+
+API embedding does not use a local model artifact. The model server uses the
+provider model name with `tiktoken`. Unknown names use `cl100k_base` only for
+chunk-size estimation, then the configured API creates every vector.

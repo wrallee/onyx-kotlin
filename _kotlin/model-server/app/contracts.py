@@ -42,6 +42,9 @@ class ChunkEmbedRequest(BaseModel):
     max_context_length: int = Field(default=512, ge=1, le=32768)
     normalize_embeddings: bool = True
     manual_passage_prefix: str | None = None
+    api_key: str | None = None
+    provider_type: str | None = None
+    api_url: str | None = None
 
 
 class ExistingChunk(BaseModel):
@@ -57,6 +60,9 @@ class PrepareExistingChunksRequest(BaseModel):
     model_name: str | None = None
     max_context_length: int = Field(default=512, ge=1, le=32768)
     manual_passage_prefix: str | None = None
+    api_key: str | None = None
+    provider_type: str | None = None
+    api_url: str | None = None
 
 
 class EmbeddedChunk(BaseModel):

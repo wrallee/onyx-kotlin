@@ -2,6 +2,7 @@ package com.onyx.kotlin.model
 
 import com.onyx.kotlin.config.OnyxProperties
 import com.onyx.kotlin.config.buildModelServerClient
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.web.client.ResourceAccessException
@@ -9,7 +10,6 @@ import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
 import tools.jackson.databind.JsonNode
 import java.net.URI
-import kotlin.math.sqrt
 
 internal const val DEFAULT_LOCAL_EMBEDDING_MODEL = "ibm-granite/granite-embedding-311m-multilingual-r2"
 
@@ -73,14 +73,7 @@ class ModelServerClient(
         config: EmbeddingExecutionConfig,
     ): List<ChunkEmbedding> {
         validate(config)
-        if (config.provider == null) {
-            return localChunkAndEmbed(text, title, metadataContext, config)
-        }
-        val prepared = prepareChunks(text, title, metadataContext, config)
-        val embeddings = remoteEmbed(prepared.map(PreparedChunk::embeddingText), config)
-        return prepared.zip(embeddings).map { (chunk, embedding) ->
-            ChunkEmbedding(chunk.content, embedding, chunk.tokenCount)
-        }
+        return modelServerChunkAndEmbed(text, title, metadataContext, config)
     }
 
     fun reembedExistingChunks(
@@ -90,7 +83,6 @@ class ModelServerClient(
         require(chunks.isNotEmpty()) { "chunks must not be empty" }
         require(chunks.none { it.content.isBlank() }) { "chunk content must not be blank" }
         validate(config)
-        val modelName = if (config.provider == null) config.modelName else defaultConfig().modelName
         val response = postModelServer(
             "/encoder/prepare-existing-chunks",
             mapOf(
@@ -101,16 +93,17 @@ class ModelServerClient(
                         "search_context" to it.searchContext,
                     )
                 },
-                "model_name" to modelName,
+                "model_name" to config.modelName,
                 "max_context_length" to config.maxContextLength,
                 "manual_passage_prefix" to config.passagePrefix,
-            ),
+            ) + providerFields(config),
         ).preparedChunks()
-        val embeddings = if (config.provider == null) {
-            localEmbed(response.map(PreparedChunk::embeddingText), "passage", config, includePrefix = false)
-        } else {
-            remoteEmbed(response.map(PreparedChunk::embeddingText), config)
-        }
+        val embeddings = modelServerEmbed(
+            response.map(PreparedChunk::embeddingText),
+            "passage",
+            config,
+            includePrefix = false,
+        )
         return response.zip(embeddings).map { (chunk, embedding) ->
             ChunkEmbedding(chunk.content, embedding, chunk.tokenCount)
         }
@@ -125,7 +118,7 @@ class ModelServerClient(
         .retrieve()
         .body(JsonNode::class.java) ?: error("Model server returned no status response")
 
-    private fun localChunkAndEmbed(
+    private fun modelServerChunkAndEmbed(
         text: String,
         title: String,
         metadataContext: String,
@@ -141,13 +134,13 @@ class ModelServerClient(
                 "max_context_length" to config.maxContextLength,
                 "normalize_embeddings" to config.normalize,
                 "manual_passage_prefix" to config.passagePrefix,
-            ),
+            ) + providerFields(config),
         ).path("chunks")
         check(chunks.isArray && chunks.size() > 0) { "Model server returned no chunks" }
         return chunks.toList().map { chunk ->
             val result = ChunkEmbedding(
                 content = chunk.path("content").asString(),
-                embedding = chunk.path("embedding").toList().map { it.asDouble() },
+                embedding = chunk.path("embedding").embeddingVector(),
                 tokenCount = chunk.path("token_count").asInt(),
             )
             check(result.content.isNotBlank()) { "Model server returned a blank chunk" }
@@ -158,24 +151,6 @@ class ModelServerClient(
             result
         }
     }
-
-    private fun prepareChunks(
-        text: String,
-        title: String,
-        metadataContext: String,
-        config: EmbeddingExecutionConfig,
-    ): List<PreparedChunk> = postModelServer(
-        "/encoder/chunk",
-        mapOf(
-            "text" to text,
-            "title" to title,
-            "metadata_context" to metadataContext,
-            "model_name" to defaultConfig().modelName,
-            "max_context_length" to config.maxContextLength,
-            "normalize_embeddings" to config.normalize,
-            "manual_passage_prefix" to config.passagePrefix,
-        ),
-    ).preparedChunks()
 
     private fun JsonNode.preparedChunks(): List<PreparedChunk> {
         val chunks = path("chunks")
@@ -196,15 +171,10 @@ class ModelServerClient(
     private fun embed(texts: List<String>, textType: String, config: EmbeddingExecutionConfig): List<List<Double>> {
         require(texts.isNotEmpty() && texts.none(String::isBlank)) { "texts must contain non-blank values" }
         validate(config)
-        return if (config.provider == null) {
-            localEmbed(texts, textType, config, includePrefix = true)
-        } else {
-            val prefix = if (textType == "query") config.queryPrefix else config.passagePrefix
-            remoteEmbed(texts.map { if (prefix.isNullOrEmpty()) it else prefix + it }, config)
-        }
+        return modelServerEmbed(texts, textType, config, includePrefix = true)
     }
 
-    private fun localEmbed(
+    private fun modelServerEmbed(
         texts: List<String>,
         textType: String,
         config: EmbeddingExecutionConfig,
@@ -220,37 +190,17 @@ class ModelServerClient(
                 "text_type" to textType,
                 "manual_query_prefix" to config.queryPrefix.takeIf { includePrefix },
                 "manual_passage_prefix" to config.passagePrefix.takeIf { includePrefix },
-            ),
+            ) + providerFields(config),
         )
         return response.path("embeddings").toList().map { vector ->
-            vector.toList().map { it.asDouble() }
+            vector.embeddingVector()
         }.also { validateEmbeddings(it, texts.size, config.modelDim) }
     }
 
-    private fun remoteEmbed(texts: List<String>, config: EmbeddingExecutionConfig): List<List<Double>> {
-        val provider = requireNotNull(config.provider)
-        val apiUrl = requireValidEmbeddingProviderUrl(provider.apiUrl)
-        val response = post(
-            apiUrl,
-            mapOf("input" to texts, "model" to config.modelName, "encoding_format" to "float"),
-            provider.apiKey,
-        )
-        val data = response.path("data")
-        check(data.isArray) { "Embedding provider returned no data array" }
-        check(data.size() == texts.size) { "Embedding provider returned the wrong number of vectors" }
-        val indexed = data.toList().associateBy { it.path("index").asInt(-1) }
-        check(indexed.keys == texts.indices.toSet()) { "Embedding provider returned invalid indexes" }
-        val embeddings = texts.indices.map { index ->
-            indexed.getValue(index).path("embedding").toList().map { it.asDouble() }
-        }
-        validateEmbeddings(embeddings, texts.size, config.modelDim)
-        return if (config.normalize) embeddings.map(::normalize) else embeddings
-    }
-
     private fun postModelServer(path: String, body: Map<String, Any?>): JsonNode =
-        post(properties.modelServer.baseUrl.trimEnd('/') + path, body, null)
+        post(properties.modelServer.baseUrl.trimEnd('/') + path, body)
 
-    private fun post(url: String, body: Map<String, Any?>, apiKey: String?): JsonNode {
+    private fun post(url: String, body: Map<String, Any?>): JsonNode {
         var attempt = 0
         var backoffMillis = properties.modelServer.embedRetryInitialBackoffMs
         while (true) {
@@ -258,15 +208,13 @@ class ModelServerClient(
                 return client.post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .headers { headers ->
-                        apiKey?.takeIf(String::isNotBlank)?.let(headers::setBearerAuth)
-                    }
                     .body(body)
                     .retrieve()
                     .body(JsonNode::class.java) ?: error("Embedding service returned no response")
             } catch (error: RuntimeException) {
                 val retryable = error is ResourceAccessException ||
-                    (error is RestClientResponseException && error.statusCode.is5xxServerError)
+                    (error is RestClientResponseException &&
+                        (error.statusCode.is5xxServerError || error.statusCode == HttpStatus.TOO_MANY_REQUESTS))
                 if (!retryable || attempt >= properties.modelServer.embedMaxRetries) throw error
                 try {
                     Thread.sleep(backoffMillis)
@@ -303,11 +251,18 @@ class ModelServerClient(
         }
     }
 
-    private fun normalize(vector: List<Double>): List<Double> {
-        val norm = sqrt(vector.sumOf { it * it })
-        check(norm > 0.0 && norm.isFinite()) { "Embedding provider returned a zero vector" }
-        return vector.map { it / norm }
+    private fun JsonNode.embeddingVector(): List<Double> {
+        check(isArray && all { it.isNumber }) { "Embedding service returned a non-numeric vector" }
+        return toList().map { it.asDouble() }
     }
+
+    private fun providerFields(config: EmbeddingExecutionConfig): Map<String, Any?> = config.provider?.let {
+        mapOf(
+            "provider_type" to "openai_compatible",
+            "api_url" to requireValidEmbeddingProviderUrl(it.apiUrl),
+            "api_key" to it.apiKey,
+        )
+    } ?: emptyMap()
 }
 
 internal fun requireValidEmbeddingProviderUrl(value: String): String {

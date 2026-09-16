@@ -2,25 +2,24 @@ from __future__ import annotations
 
 import pytest
 from app.main import app, embedding_runtime
-from app.runtime import RuntimeStatus
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(monkeypatch) -> TestClient:
-    def load_embedding() -> None:
-        embedding_runtime._statuses[embedding_runtime.settings.embedding_model_name] = (
-            RuntimeStatus(
-                True,
-                "READY",
-                "test embedding ready",
-                embedding_runtime.settings.embedding_model_name,
-            )
-        )
-
-    monkeypatch.setattr(embedding_runtime, "load", load_embedding)
+def client() -> TestClient:
     with TestClient(app) as test_client:
         yield test_client
+
+
+def test_startup_does_not_load_a_local_model(monkeypatch) -> None:
+    monkeypatch.setattr(
+        embedding_runtime,
+        "load",
+        lambda: pytest.fail("startup loaded a local embedding model"),
+    )
+
+    with TestClient(app) as test_client:
+        assert test_client.get("/actuator/health/readiness").status_code == 200
 
 
 def test_health_contract(client: TestClient) -> None:
@@ -86,6 +85,34 @@ def test_chunk_and_embed_contract_with_fake_runtime(
             }
         ]
     }
+
+
+def test_remote_chunk_contract_reaches_the_same_model_server_endpoint(
+    monkeypatch, client: TestClient
+) -> None:
+    captured = []
+
+    def chunk_and_embed(request):
+        captured.append(request)
+        return [(request.text, [1.0, 0.0], 12)]
+
+    monkeypatch.setattr(embedding_runtime, "chunk_and_embed", chunk_and_embed)
+
+    response = client.post(
+        "/encoder/chunk-and-embed",
+        json={
+            "text": "본문",
+            "model_name": "remote-model",
+            "provider_type": "openai_compatible",
+            "api_url": "https://embedding.example/v1/embeddings",
+            "api_key": "secret",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured[0].provider_type == "openai_compatible"
+    assert captured[0].api_url == "https://embedding.example/v1/embeddings"
+    assert captured[0].api_key == "secret"
 
 
 def test_chunk_contract_exposes_prepared_embedding_text(

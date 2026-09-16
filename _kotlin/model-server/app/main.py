@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -30,9 +29,6 @@ from app.contracts import (
 )
 from app.runtime import EmbeddingRuntime
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("onyx-python-model-server")
-
 REQUESTS = Counter(
     "onyx_model_server_requests_total",
     "Model server requests",
@@ -56,15 +52,12 @@ startup_errors: dict[str, str] = {}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    READY.labels("embedding").set(1)
     try:
-        await run_in_threadpool(embedding_runtime.load)
-        READY.labels("embedding").set(1)
-        logger.info("embedding runtime ready: %s", embedding_runtime.status.model_name)
-    except Exception as error:
-        startup_errors["embedding"] = str(error)
+        yield
+    finally:
         READY.labels("embedding").set(0)
-        logger.exception("Failed to load embedding runtime")
-    yield
+        embedding_runtime.close()
 
 
 app = FastAPI(title="Onyx Python Model Server", version="1.0.0", lifespan=lifespan)
@@ -112,11 +105,10 @@ def model_status() -> dict[str, Any]:
 
 @app.get("/actuator/health/readiness")
 def readiness() -> JSONResponse:
-    ready = embedding_runtime.status.ready
     return JSONResponse(
-        status_code=200 if ready else 503,
+        status_code=200,
         content={
-            "status": "UP" if ready else "DOWN",
+            "status": "UP",
             "components": {
                 "embedding": embedding_runtime.status.__dict__,
             },
