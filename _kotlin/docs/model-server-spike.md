@@ -1,12 +1,16 @@
 # Model-server porting spike
 
-## Implemented outcome
+## Current Kotlin port outcome
 
-The user selected Kotlin. The production PoC now runs the pinned Granite 311M
-Multilingual R2 INT8 OpenVINO artifact through JNA bindings to the bundled
-OpenVINO C API and the exact DJL Hugging Face tokenizer. Docker validation as
-UID 10001 returned English and Korean 768-dimensional normalized embeddings;
-the full Compose File ingestion path also completed and indexed two chunks.
+The Kotlin backend uses a Python 3.13 model-server for every chunking and
+embedding request. Granite 311M Multilingual R2 uses its pinned OpenVINO INT8
+artifact. Optional Harrier uses a user-mounted SentenceTransformers artifact and
+PyTorch CPU. OpenAI-compatible requests use the configured API without loading
+either local model.
+
+Local models load on the first local request. The default is Granite. Harrier
+files are never downloaded by this repository. API-only deployments do not load
+local model weights.
 
 GTE multilingual reranker-base and BGE reranker v2 m3 are downloaded, pinned
 candidates. Reranking remains disabled until one candidate has a validated
@@ -20,13 +24,14 @@ This note is based only on the local FOSS checkout at
 `backend/model_server` and its local call sites. `_kotlinmania` and external
 repositories were not read or used.
 
-This is a feasibility spike, not an implementation or a language decision.
-The final model-server implementation remains a user choice after the
-acceptance checks below: **Kotlin/JVM, Go, retain the Python implementation,
-or use an external compatible inference service**. A failed Kotlin spike must
-not silently select Python.
+This document began as a feasibility spike. The current outcome above supersedes
+its original decision checkpoint. The remaining sections preserve the source
+baseline and evaluation record.
 
-## Active FOSS model-server contract
+## Original FOSS model-server baseline
+
+The contract below records the original Python implementation inspected by this
+spike. It is not the active Kotlin-port routing policy.
 
 `model_server.main` only mounts `management_endpoints.router` and
 `encoders.router`. The files under `backend/model_server/legacy` are not
@@ -64,7 +69,7 @@ The request shape currently sent to a local model is:
 
 `deployment_name`, `api_key`, `api_url`, `api_version`, and
 `reduced_dimension` are part of the shared request schema but are not used by
-the active local model-server route. `provider_type` must be absent or `null`;
+the original local model-server route. `provider_type` must be absent or `null`;
 non-null provider requests are rejected because cloud providers are called
 directly by the application instead.
 
@@ -82,7 +87,7 @@ Compatibility cases to preserve during a port:
 
 ## Preprocessing and model coupling
 
-The active encoder is smaller than the full historical model-server surface,
+The original encoder is smaller than the full historical model-server surface,
 but it is not just a vector HTTP wrapper.
 
 1. It caches one `SentenceTransformer` per `model_name`, loads it with
@@ -275,7 +280,7 @@ instead of bypassing any licensing control.
 
 ## Local evidence
 
-- `backend/model_server/encoders.py`: active encoder route, cache, prefixing,
+- `backend/model_server/encoders.py`: original encoder route, cache, prefixing,
   normalization, request validation, and concurrency retry.
 - `backend/model_server/main.py` and `management_endpoints.py`: mounted routes,
   metrics, lifecycle, health, and GPU status.

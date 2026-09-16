@@ -27,11 +27,14 @@ directory:
 - GTE multilingual reranker-base
 - BGE reranker v2 m3 candidate
 
-See `MODELS.md` for revisions and SHA-256 values.
+See `model-server/MODELS.md` for revisions and SHA-256 values.
 
-The Python service runs Granite INT8 through the OpenVINO Python API. The current
-model-server and Kotlin search do not expose or call a reranker. The optional GTE
-and BGE artifacts remain available for evaluation.
+The Kotlin backend sends every chunking and embedding request to the Python
+model-server. Granite uses OpenVINO INT8. Harrier loads from a user mount through
+SentenceTransformers and PyTorch. OpenAI-compatible requests use only the
+configured endpoint and do not load a local embedding model. The current search
+does not call a reranker. The optional GTE and BGE artifacts remain available for
+evaluation.
 
 ## Run
 
@@ -58,6 +61,9 @@ docker compose config -q
 docker compose build
 docker compose up -d
 ```
+
+To use Harrier, mount its files read-only under `models/harrier-oss-v1-0.6b`.
+The repository does not download or verify this optional artifact.
 
 For an isolated stack, use a separate project, port, subnet, and read-only model path:
 

@@ -30,6 +30,7 @@ class ModelServerClientTest {
                     modelServer = OnyxProperties.ModelServer(
                         baseUrl = server.url("/").toString(),
                         modelName = "embedding-model",
+                        embeddingDimension = 2,
                     ),
                 ),
                 RestClient.builder(),
@@ -133,15 +134,167 @@ class ModelServerClientTest {
         server.enqueue(
             MockResponse()
                 .setHeader("Content-Type", "application/json")
-                .setBody("""{"embeddings":[[0.1,0.2]]}"""),
+                .setBody("""{"embeddings":[[0.1]]}"""),
         )
         server.start()
 
         val result = client(server, embedMaxRetries = 2, embedRetryInitialBackoffMs = 5).embed(listOf("hello"))
 
-        assertEquals(listOf(listOf(0.1, 0.2)), result)
+        assertEquals(listOf(listOf(0.1)), result)
         assertEquals(3, server.requestCount)
     }
+
+    @Test
+    fun `OpenAI compatible embeddings are delegated to the model server`() =
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse().setHeader("Content-Type", "application/json").setBody(
+                    """{"embeddings":[[0.6,0.8],[0.0,1.0]]}""",
+                ),
+            )
+            server.start()
+            val config = remoteConfig(server, normalize = true)
+
+            val embeddings = client(server).embed(listOf("first", "second"), config)
+
+            assertThat(embeddings[0]).containsExactly(0.6, 0.8)
+            assertThat(embeddings[1]).containsExactly(0.0, 1.0)
+            val request = server.takeRequest()
+            assertThat(request.path).isEqualTo("/encoder/bi-encoder-embed")
+            assertThat(request.getHeader("Authorization")).isNull()
+            val body = jacksonObjectMapper().readTree(request.body.readUtf8())
+            assertThat(body.path("texts").toList().map { it.asString() })
+                .containsExactly("first", "second")
+            assertThat(body.path("model_name").asString()).isEqualTo("remote-model")
+            assertThat(body.path("provider_type").asString()).isEqualTo("openai_compatible")
+            assertThat(body.path("api_url").asString()).isEqualTo(server.url("/v1/embeddings").toString())
+            assertThat(body.path("api_key").asString()).isEqualTo("secret")
+            assertThat(body.path("manual_passage_prefix").asString()).isEqualTo("passage: ")
+        }
+
+    @Test
+    fun `OpenAI compatible embeddings reject missing wrong-sized and non-numeric vectors`() =
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse().setHeader("Content-Type", "application/json")
+                    .setBody("""{"embeddings":[]}"""),
+            )
+            server.enqueue(
+                MockResponse().setHeader("Content-Type", "application/json")
+                    .setBody("""{"embeddings":[[1.0]]}"""),
+            )
+            server.enqueue(
+                MockResponse().setHeader("Content-Type", "application/json")
+                    .setBody("""{"embeddings":[[null,1.0]]}"""),
+            )
+            server.start()
+            val client = client(server)
+            val config = remoteConfig(server)
+
+            assertThrows(IllegalStateException::class.java) { client.embed(listOf("text"), config) }
+            assertThrows(IllegalStateException::class.java) { client.embed(listOf("text"), config) }
+            assertThrows(IllegalStateException::class.java) { client.embed(listOf("text"), config) }
+        }
+
+    @Test
+    fun `OpenAI compatible embeddings retry a rate limit response`() = MockWebServer().use { server ->
+        server.enqueue(MockResponse().setResponseCode(429))
+        server.enqueue(
+            MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("""{"embeddings":[[1.0,2.0]]}"""),
+        )
+        server.start()
+
+        val result = client(server, embedMaxRetries = 1).embed(listOf("text"), remoteConfig(server))
+
+        assertThat(result).containsExactly(listOf(1.0, 2.0))
+        assertThat(server.requestCount).isEqualTo(2)
+    }
+
+    @Test
+    fun `remote chunking is delegated to the model server`() = MockWebServer().use { modelServer ->
+        modelServer.enqueue(
+            MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("""{"chunks":[{"content":"first","embedding":[1.0,2.0],"token_count":8}]}"""),
+        )
+        modelServer.start()
+
+        val chunks = client(modelServer).chunkAndEmbed(
+            "first",
+            "title",
+            "Source: file",
+            remoteConfig(modelServer, normalize = false),
+        )
+
+        assertThat(chunks).containsExactly(ModelServerClient.ChunkEmbedding("first", listOf(1.0, 2.0), 8))
+        val request = modelServer.takeRequest()
+        assertThat(request.path).isEqualTo("/encoder/chunk-and-embed")
+        val body = jacksonObjectMapper().readTree(request.body.readUtf8())
+        assertThat(body.path("provider_type").asString()).isEqualTo("openai_compatible")
+        assertThat(body.path("api_url").asString()).isEqualTo(modelServer.url("/v1/embeddings").toString())
+        assertThat(body.path("api_key").asString()).isEqualTo("secret")
+        assertThat(body.path("manual_passage_prefix").asString()).isEqualTo("passage: ")
+    }
+
+    @Test
+    fun `remote reembedding uses only model server endpoints`() = MockWebServer().use { modelServer ->
+        modelServer.enqueue(
+            MockResponse().setHeader("Content-Type", "application/json").setBody(
+                """{"chunks":[{"content":"stored chunk","embedding_text":"context stored chunk","token_count":9}]}""",
+            ),
+        )
+        modelServer.enqueue(
+            MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("""{"embeddings":[[1.0,2.0]]}"""),
+        )
+        modelServer.start()
+
+        val chunks = client(modelServer).reembedExistingChunks(
+            listOf(ExistingEmbeddingChunk("stored chunk", "title", "Source: jira")),
+            remoteConfig(modelServer),
+        )
+
+        assertThat(chunks).containsExactly(
+            ModelServerClient.ChunkEmbedding("stored chunk", listOf(1.0, 2.0), 9),
+        )
+        val prepare = jacksonObjectMapper().readTree(modelServer.takeRequest().body.readUtf8())
+        val embed = jacksonObjectMapper().readTree(modelServer.takeRequest().body.readUtf8())
+        assertThat(prepare.path("provider_type").asString()).isEqualTo("openai_compatible")
+        assertThat(embed.path("provider_type").asString()).isEqualTo("openai_compatible")
+        assertThat(embed.path("texts").first().asString()).isEqualTo("context stored chunk")
+        assertThat(embed.path("manual_passage_prefix").isNull).isTrue()
+    }
+
+    @Test
+    fun `existing chunks are prepared once and reembedded without rechunking`() =
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse().setHeader("Content-Type", "application/json").setBody(
+                    """{"chunks":[{"content":"stored chunk","embedding_text":"restored context stored chunk","token_count":9}]}""",
+                ),
+            )
+            server.enqueue(
+                MockResponse().setHeader("Content-Type", "application/json")
+                    .setBody("""{"embeddings":[[0.5]]}"""),
+            )
+            server.start()
+            val client = client(server)
+
+            val chunks = client.reembedExistingChunks(
+                listOf(ExistingEmbeddingChunk("stored chunk", "title", "Source: jira")),
+                EmbeddingExecutionConfig("test-model", 1, true, 512),
+            )
+
+            assertThat(chunks).containsExactly(
+                ModelServerClient.ChunkEmbedding("stored chunk", listOf(0.5), 9),
+            )
+            assertThat(server.takeRequest().path).isEqualTo("/encoder/prepare-existing-chunks")
+            val embedRequest = server.takeRequest()
+            assertThat(embedRequest.path).isEqualTo("/encoder/bi-encoder-embed")
+            val body = jacksonObjectMapper().readTree(embedRequest.body.readUtf8())
+            assertThat(body.path("texts").first().asString()).isEqualTo("restored context stored chunk")
+            assertThat(body.path("manual_passage_prefix").isNull).isTrue()
+        }
 
     @Test
     fun `embed gives up after exhausting retries`() = MockWebServer().use { server ->
@@ -212,5 +365,14 @@ class ModelServerClientTest {
             ),
         ),
         clientBuilder = RestClient.builder(),
+    )
+
+    private fun remoteConfig(server: MockWebServer, normalize: Boolean = false) = EmbeddingExecutionConfig(
+        modelName = "remote-model",
+        modelDim = 2,
+        normalize = normalize,
+        maxContextLength = 512,
+        passagePrefix = "passage: ",
+        provider = OpenAiCompatibleEmbeddingProvider(server.url("/v1/embeddings").toString(), "secret"),
     )
 }

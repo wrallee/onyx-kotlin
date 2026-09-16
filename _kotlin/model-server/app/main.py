@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -21,14 +20,14 @@ from app.contracts import (
     ApiError,
     ChunkEmbedRequest,
     ChunkEmbedResponse,
+    ChunkResponse,
     EmbeddedChunk,
     EmbedRequest,
     EmbedResponse,
+    PreparedChunk,
+    PrepareExistingChunksRequest,
 )
 from app.runtime import EmbeddingRuntime
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("onyx-python-model-server")
 
 REQUESTS = Counter(
     "onyx_model_server_requests_total",
@@ -53,15 +52,12 @@ startup_errors: dict[str, str] = {}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    READY.labels("embedding").set(1)
     try:
-        await run_in_threadpool(embedding_runtime.load)
-        READY.labels("embedding").set(1)
-        logger.info("embedding runtime ready: %s", embedding_runtime.status.model_name)
-    except Exception as error:
-        startup_errors["embedding"] = str(error)
+        yield
+    finally:
         READY.labels("embedding").set(0)
-        logger.exception("Failed to load embedding runtime")
-    yield
+        embedding_runtime.close()
 
 
 app = FastAPI(title="Onyx Python Model Server", version="1.0.0", lifespan=lifespan)
@@ -99,17 +95,20 @@ def gpu_status() -> dict[str, Any]:
 def model_status() -> dict[str, Any]:
     return {
         "embedding": embedding_runtime.status.__dict__,
+        "models": {
+            name: status.__dict__
+            for name, status in embedding_runtime.model_statuses().items()
+        },
         "startup_errors": startup_errors,
     }
 
 
 @app.get("/actuator/health/readiness")
 def readiness() -> JSONResponse:
-    ready = embedding_runtime.status.ready
     return JSONResponse(
-        status_code=200 if ready else 503,
+        status_code=200,
         content={
-            "status": "UP" if ready else "DOWN",
+            "status": "UP",
             "components": {
                 "embedding": embedding_runtime.status.__dict__,
             },
@@ -157,3 +156,35 @@ async def chunk_and_embed(request: ChunkEmbedRequest) -> ChunkEmbedResponse:
         raise
     finally:
         LATENCY.labels("chunk_embed").observe(time.perf_counter() - started)
+
+
+@app.post("/encoder/chunk", response_model=ChunkResponse)
+async def chunk(request: ChunkEmbedRequest) -> ChunkResponse:
+    _, chunks = await run_in_threadpool(embedding_runtime.prepare_chunks, request)
+    return ChunkResponse(
+        chunks=[
+            PreparedChunk(
+                content=content,
+                embedding_text=embedding_text,
+                token_count=token_count,
+            )
+            for content, embedding_text, token_count in chunks
+        ]
+    )
+
+
+@app.post("/encoder/prepare-existing-chunks", response_model=ChunkResponse)
+async def prepare_existing_chunks(
+    request: PrepareExistingChunksRequest,
+) -> ChunkResponse:
+    chunks = await run_in_threadpool(embedding_runtime.prepare_existing_chunks, request)
+    return ChunkResponse(
+        chunks=[
+            PreparedChunk(
+                content=content,
+                embedding_text=embedding_text,
+                token_count=token_count,
+            )
+            for content, embedding_text, token_count in chunks
+        ]
+    )

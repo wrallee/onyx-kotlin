@@ -19,3 +19,18 @@ Verified files:
 | `openvino/openvino_model_qint8_quantized.bin` | `19cd99b8657e8f86529ce05384194b1bf3dbde94fd48a571a832344c119c27bc` |
 | `tokenizer.json` | `0087c868b33bad550a78a08d19798cfd7f713cde4f020803b8f51f405503e15f` |
 | `1_Pooling/config.json` | `781299da695e58439d70d491840da22ea0935d1d57d9646eb9725f1f19754e89` |
+
+## Optional Harrier embedding
+
+- Repository: `microsoft/harrier-oss-v1-0.6b`
+- Runtime format: SentenceTransformers with PyTorch CPU, 1024 output dimensions
+- Default local directory: `models/harrier-oss-v1-0.6b`
+
+The operator supplies this model through a read-only mount. This repository
+does not download, pin, or verify the Harrier files.
+
+## OpenAI-compatible API embedding
+
+API embedding does not use a local model artifact. The model server uses the
+provider model name with `tiktoken`. Unknown names use `cl100k_base` only for
+chunk-size estimation, then the configured API creates every vector.

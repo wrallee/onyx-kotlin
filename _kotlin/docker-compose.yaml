@@ -87,8 +87,11 @@ services:
     environment:
       EMBEDDING_MODEL_PATH: /models/granite-embedding-311m-multilingual-r2-int8-openvino
       EMBEDDING_MODEL_NAME: ${ONYX_EMBEDDING_MODEL_NAME:-ibm-granite/granite-embedding-311m-multilingual-r2}
+      HARRIER_MODEL_PATH: ${HARRIER_MODEL_PATH:-/models/harrier-oss-v1-0.6b}
       MODEL_INFERENCE_CONCURRENCY: ${MODEL_INFERENCE_CONCURRENCY:-1}
       TORCH_NUM_THREADS: ${TORCH_NUM_THREADS:-1}
+      MODEL_SERVER_CONNECT_TIMEOUT_MS: ${MODEL_SERVER_CONNECT_TIMEOUT_MS:-30000}
+      MODEL_SERVER_READ_TIMEOUT_MS: ${MODEL_SERVER_READ_TIMEOUT_MS:-600000}
     shm_size: 512m
     volumes:
       - ${MODEL_DIR:-./models}:/models:ro

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -17,8 +17,11 @@ class Settings:
     embedding_model_path: Path
     embedding_model_name: str
     embedding_openvino_file: str
+    harrier_model_path: Path
     inference_concurrency: int
     torch_threads: int
+    provider_connect_timeout_seconds: float = 30.0
+    provider_read_timeout_seconds: float = 600.0
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -37,6 +40,19 @@ class Settings:
                 "EMBEDDING_OPENVINO_FILE",
                 "openvino/openvino_model_qint8_quantized.xml",
             ),
-            inference_concurrency=max(1, int(os.getenv("MODEL_INFERENCE_CONCURRENCY", "1"))),
+            harrier_model_path=Path(
+                os.getenv("HARRIER_MODEL_PATH", "/models/harrier-oss-v1-0.6b")
+            ),
+            inference_concurrency=max(
+                1, int(os.getenv("MODEL_INFERENCE_CONCURRENCY", "1"))
+            ),
             torch_threads=max(1, int(os.getenv("TORCH_NUM_THREADS", "4"))),
+            provider_connect_timeout_seconds=max(
+                0.001,
+                int(os.getenv("MODEL_SERVER_CONNECT_TIMEOUT_MS", "30000")) / 1000,
+            ),
+            provider_read_timeout_seconds=max(
+                0.001,
+                int(os.getenv("MODEL_SERVER_READ_TIMEOUT_MS", "600000")) / 1000,
+            ),
         )
