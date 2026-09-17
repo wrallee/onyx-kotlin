@@ -14,17 +14,12 @@ class EmbedRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     texts: list[str]
-    model_name: str | None = None
-    deployment_name: str | None = None
+    model_name: str
     max_context_length: int = Field(default=512, ge=1, le=32768)
     normalize_embeddings: bool = True
-    api_key: str | None = None
-    provider_type: str | None = None
     text_type: EmbedTextType
     manual_query_prefix: str | None = None
     manual_passage_prefix: str | None = None
-    api_url: str | None = None
-    api_version: str | None = None
     reduced_dimension: int | None = None
 
 
@@ -38,13 +33,10 @@ class ChunkEmbedRequest(BaseModel):
     text: str
     title: str = ""
     metadata_context: str = ""
-    model_name: str | None = None
+    model_name: str
     max_context_length: int = Field(default=512, ge=1, le=32768)
     normalize_embeddings: bool = True
     manual_passage_prefix: str | None = None
-    api_key: str | None = None
-    provider_type: str | None = None
-    api_url: str | None = None
 
 
 class ExistingChunk(BaseModel):
@@ -57,12 +49,9 @@ class PrepareExistingChunksRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     chunks: list[ExistingChunk]
-    model_name: str | None = None
+    model_name: str
     max_context_length: int = Field(default=512, ge=1, le=32768)
     manual_passage_prefix: str | None = None
-    api_key: str | None = None
-    provider_type: str | None = None
-    api_url: str | None = None
 
 
 class EmbeddedChunk(BaseModel):

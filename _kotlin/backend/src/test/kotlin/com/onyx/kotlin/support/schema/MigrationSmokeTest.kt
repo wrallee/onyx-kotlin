@@ -28,6 +28,13 @@ class MigrationSmokeTest : H2IntegrationTest() {
                 Boolean::class.java,
             ),
         ).isTrue()
+        assertThat(tables).doesNotContain("embedding_providers", "reindex_port_attempts")
+        assertThat(
+            jdbc.queryForObject(
+                "SELECT model_name FROM search_settings WHERE status = 'PRESENT'",
+                String::class.java,
+            ),
+        ).isEqualTo("ibm-granite/granite-embedding-311m-multilingual-r2")
     }
 
     @Test
@@ -154,6 +161,7 @@ class MigrationSmokeTest : H2IntegrationTest() {
             .dataSource(scopedDatabaseUrl(schema), databaseUsername, databasePassword)
             .locations("classpath:db/migration")
             .schemas(schema)
+            .placeholders(mapOf("opensearchIndex" to "onyx-kotlin-chunks"))
         if (target != null) configuration.target(target)
         return configuration.load()
     }

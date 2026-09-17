@@ -11,6 +11,7 @@ import com.onyx.kotlin.connector.loader.FileConnectorLoader
 import com.onyx.kotlin.connector.loader.RemoteConnectorLoaders
 import com.onyx.kotlin.connector.loader.SourceDocument
 import com.onyx.kotlin.documentset.DocumentSetRepository
+import com.onyx.kotlin.indexing.IndexSettingsService
 import com.onyx.kotlin.model.ModelServerClient
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.search.IndexedMetadata
@@ -41,6 +42,7 @@ class IngestionProcessor(
     private val mapper: ObjectMapper,
     private val claims: JobClaimService,
     private val externalWrites: PairExternalWriteFence,
+    private val indexSettings: IndexSettingsService,
 ) {
     fun process(jobId: Long) {
         claims.claimJob(jobId)?.let(::process)
@@ -52,6 +54,9 @@ class IngestionProcessor(
         val pair = pairs.findById(claim.pairId).orElse(null) ?: return
         var refreshFreq: Long? = null
         try {
+            val runtime = attempt.searchSettingsId.takeIf { it != 0L }
+                ?.let(indexSettings::runtime)
+                ?: indexSettings.currentRuntime()
             val connector = connectorService.connector(pair.connectorId)
             refreshFreq = connector.refreshFreq
             if (!attempt.pruneOnly) setPollRange(attempt, connector.indexingStart)
@@ -59,7 +64,7 @@ class IngestionProcessor(
             val checkpoint = if (attempt.fromBeginning || attempt.pruneOnly) {
                 null
             } else {
-                checkpoints.findById(requireNotNull(pair.id)).orElse(null)?.checkpointJson
+                checkpoints.findById(IngestionCheckpointId(requireNotNull(pair.id), runtime.settingsId)).orElse(null)?.checkpointJson
             }
             val credentials = connectorService.credentialSecret(pair.credentialId)
             val batches = if (attempt.pruneOnly) {
@@ -124,6 +129,7 @@ class IngestionProcessor(
                             indexableContent,
                             document.title,
                             indexedMetadata.embeddingContext(connector.source),
+                            runtime.embedding,
                         )
                     }
                     if (chunks.isEmpty()) {
@@ -136,6 +142,7 @@ class IngestionProcessor(
                         externalWrites.withPair(requireNotNull(pair.id)) {
                             renew(claim)
                             indexer.upsert(
+                                runtime.index,
                                 pairId = requireNotNull(pair.id),
                                 sourceDocumentId = document.id,
                                 chunkId = index,
@@ -155,12 +162,15 @@ class IngestionProcessor(
                         renew(claim)
                     }
                     renew(claim)
-                    indexer.deleteStaleChunks(requireNotNull(pair.id), document.id, chunks.size)
+                    indexer.deleteStaleChunks(runtime.index, requireNotNull(pair.id), document.id, chunks.size)
                     renew(claim)
-                    val existing = documents.findByCcPairIdAndSourceDocumentId(requireNotNull(pair.id), document.id)
+                    val existing = documents.findByCcPairIdAndSearchSettingsIdAndSourceDocumentId(
+                        requireNotNull(pair.id), runtime.settingsId, document.id,
+                    )
                     if (existing == null) newDocuments += 1
                     val indexedDocument = existing ?: IndexedDocumentEntity(
                         ccPairId = requireNotNull(pair.id),
+                        searchSettingsId = runtime.settingsId,
                         sourceDocumentId = document.id,
                     )
                     indexedDocument.apply {
@@ -181,7 +191,9 @@ class IngestionProcessor(
                     attempts.save(attempt)
                     if (document.id !in batchFailedDocumentIds) {
                         val resolvedErrors = errors
-                            .findUnresolvedByCcPairIdAndSourceDocumentId(requireNotNull(pair.id), document.id)
+                            .findUnresolvedByCcPairIdAndSourceDocumentId(
+                                requireNotNull(pair.id), runtime.settingsId, document.id,
+                            )
                             .onEach { it.isResolved = true }
                         errors.saveAll(resolvedErrors)
                     }
@@ -195,6 +207,7 @@ class IngestionProcessor(
                     checkpoints.save(
                         IngestionCheckpointEntity(
                             ccPairId = requireNotNull(pair.id),
+                            searchSettingsId = runtime.settingsId,
                             checkpointJson = batch.checkpoint.value,
                         ),
                     )
@@ -205,7 +218,9 @@ class IngestionProcessor(
             }
             stopIfStopped(claim)
             attempt.docsRemovedFromIndex = pruning.prune(
+                runtime.index,
                 requireNotNull(pair.id),
+                runtime.settingsId,
                 attemptId,
                 attempt.fromBeginning || attempt.pruneOnly,
                 completeEnumeration,
@@ -214,13 +229,15 @@ class IngestionProcessor(
             renew(claim)
             if (attempt.fromBeginning && completeEnumeration) {
                 val errorsToResolve = (
-                    errors.findPriorUnresolvedByCcPairId(requireNotNull(pair.id), attemptId) +
+                    errors.findPriorUnresolvedByCcPairId(requireNotNull(pair.id), runtime.settingsId, attemptId) +
                         unresolvedAttemptErrorsAtStart
                 )
                     .onEach { it.isResolved = true }
                 errors.saveAll(errorsToResolve)
             } else if (!attempt.fromBeginning && !hasFailures) {
-                val resolvedEntityErrors = errors.findUnresolvedEntityErrorsByCcPairId(requireNotNull(pair.id))
+                val resolvedEntityErrors = errors.findUnresolvedEntityErrorsByCcPairId(
+                    requireNotNull(pair.id), runtime.settingsId,
+                )
                     .onEach { it.isResolved = true }
                 errors.saveAll(resolvedEntityErrors)
             }
@@ -243,7 +260,13 @@ class IngestionProcessor(
     }
 
     private fun stopIfStopped(claim: IngestionClaim) {
-        if (pairs.findById(claim.pairId).orElse(null)?.status == PairStatus.PAUSED) throw ConnectorPausedException()
+        if (indexSettings.pending()?.let { it.id == claim.searchSettingsId && it.cancelRequestedAt != null } == true) {
+            throw ConnectorPausedException()
+        }
+        if (
+            claim.searchSettingsId == indexSettings.currentRuntime().settingsId &&
+            pairs.findById(claim.pairId).orElse(null)?.status == PairStatus.PAUSED
+        ) throw ConnectorPausedException()
         renew(claim)
     }
 
@@ -285,7 +308,10 @@ class IngestionProcessor(
 
     private fun setPollRange(attempt: IngestionAttemptEntity, indexingStart: Instant?) {
         if (attempt.pollRangeStart != null && attempt.pollRangeEnd != null) return
-        val priorAttempts = attempts.findAllByCcPairIdOrderByIdDesc(attempt.ccPairId)
+        val priorAttempts = attempts.findAllByCcPairIdAndSearchSettingsIdOrderByIdDesc(
+            attempt.ccPairId,
+            attempt.searchSettingsId,
+        )
             .filterNot { it.id == attempt.id }
         val resumable = priorAttempts.firstOrNull()?.takeIf { it.status == AttemptStatus.FAILED }
         if (resumable?.pollRangeStart != null && resumable.pollRangeEnd != null) {
@@ -302,7 +328,7 @@ class IngestionProcessor(
         } else {
             previousEnd.minusSeconds(30 * 60).coerceAtLeast(Instant.EPOCH)
         }
-        attempt.pollRangeEnd = Instant.now()
+        attempt.pollRangeEnd = attempt.pollRangeEnd ?: Instant.now()
     }
 }
 

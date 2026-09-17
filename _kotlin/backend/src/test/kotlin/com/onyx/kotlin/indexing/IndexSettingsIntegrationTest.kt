@@ -1,255 +1,130 @@
 package com.onyx.kotlin.indexing
 
-import com.onyx.kotlin.api.ApiException
-import com.onyx.kotlin.model.EmbeddingExecutionConfig
 import com.onyx.kotlin.model.ModelServerClient
+import com.onyx.kotlin.opensearch.OpenSearchIndexMigrationLockRepository
 import com.onyx.kotlin.support.H2IntegrationTest
+import org.mockito.Mockito.clearInvocations
+import org.mockito.Mockito.never
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.`when`
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.mockito.Mockito.mockingDetails
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
-import org.springframework.dao.DataIntegrityViolationException
-import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
-import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
-import org.springframework.test.context.bean.override.mockito.MockitoBean
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 @AutoConfigureMockMvc
 class IndexSettingsIntegrationTest : H2IntegrationTest() {
     @Autowired private lateinit var settings: IndexSettingsService
+    @Autowired private lateinit var registry: LocalEmbeddingModelRegistry
     @Autowired private lateinit var searchSettings: SearchSettingsRepository
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var mvc: MockMvc
+    @Autowired private lateinit var mapper: tools.jackson.databind.ObjectMapper
     @MockitoBean private lateinit var modelServer: ModelServerClient
+    @MockitoBean private lateinit var indexLock: OpenSearchIndexMigrationLockRepository
 
     @BeforeEach
     fun resetDatabase() {
-        truncateTables(
-            "reindex_port_attempts", "search_settings", "embedding_providers",
-            "ingestion_jobs", "ingestion_attempts", "ingestion_checkpoints",
-            "connector_credential_pairs", "connectors", "credentials",
+        truncateTables("search_settings")
+    }
+
+    @Test
+    fun `registry exposes only Granite and Harrier with fixed dimensions`() {
+        assertThat(registry.all().map { it.modelName to it.dimension }).containsExactly(
+            "ibm-granite/granite-embedding-311m-multilingual-r2" to 768,
+            "microsoft/harrier-oss-v1-0.6b" to 1024,
         )
     }
 
     @Test
-    fun currentAndPendingSettingsAreSingletons() {
+    fun `current setting is Granite and comes from the local registry`() {
         val current = settings.current()
-        val first = settings.savePending(request("first"))
-        val second = settings.savePending(request("second"))
 
-        assertThat(settings.current().id).isEqualTo(current.id)
-        assertThat(first.id).isEqualTo(second.id)
-        assertThat(settings.pending()?.modelName).isEqualTo("second")
-        assertThat(searchSettings.count()).isEqualTo(2)
-        assertThat(settings.needsReindexing()).isTrue()
+        assertThat(current.modelName).isEqualTo("ibm-granite/granite-embedding-311m-multilingual-r2")
+        assertThat(current.status).isEqualTo(IndexModelStatus.PRESENT)
+        assertThat(searchSettings.count()).isEqualTo(1)
     }
 
     @Test
-    fun apiExposesCurrentPendingAndReindexRequiredState() {
-        mvc.perform(get("/search-settings/get-secondary-search-settings"))
-            .andExpect(status().isOk)
-            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-            .andExpect(content().string("null"))
+    fun `models API exposes only locally supported models`() {
+        `when`(modelServer.modelStatus()).thenReturn(
+            registryStatus(
+                "ibm-granite/granite-embedding-311m-multilingual-r2" to "NOT_LOADED",
+                "microsoft/harrier-oss-v1-0.6b" to "UNAVAILABLE",
+            ),
+        )
 
-        mvc.perform(get("/search-settings/get-current-search-settings"))
+        mvc.perform(get("/admin/embedding/models"))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.model_name").value("ibm-granite/granite-embedding-311m-multilingual-r2"))
-            .andExpect(jsonPath("$.status").value("PRESENT"))
-
-        mvc.perform(
-            post("/search-settings/set-new-search-settings")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"model_name":"future","model_dim":1024,"normalize":true}"""),
-        ).andExpect(status().isOk)
-            .andExpect(jsonPath("$.id").isNumber)
-        mvc.perform(get("/settings"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.needs_reindexing").value(true))
+            .andExpect(jsonPath("$[0].display_name").value("Granite"))
+            .andExpect(jsonPath("$[0].dimension").value(768))
+            .andExpect(jsonPath("$[0].available").value(true))
+            .andExpect(jsonPath("$[0].status").value("NOT_LOADED"))
+            .andExpect(jsonPath("$[1].display_name").value("Harrier"))
+            .andExpect(jsonPath("$[1].dimension").value(1024))
+            .andExpect(jsonPath("$[1].available").value(false))
+            .andExpect(jsonPath("$[1].status").value("UNAVAILABLE"))
     }
 
     @Test
-    fun concurrentPendingSavesCannotCreateDuplicateFutureSettings() {
+    fun `runtime reads do not take the migration lock`() {
         settings.current()
-        val start = CountDownLatch(1)
-        val executor = Executors.newFixedThreadPool(2)
-        try {
-            val results = listOf("first", "second").map { model ->
-                executor.submit<Long> {
-                    start.await()
-                    settings.savePending(request(model)).id
-                }
-            }
-            start.countDown()
+        clearInvocations(indexLock)
 
-            assertThat(results.map { it.get(10, TimeUnit.SECONDS) }.distinct()).hasSize(1)
-            assertThat(searchSettings.findAll().count { it.status == IndexModelStatus.FUTURE }).isEqualTo(1)
-        } finally {
-            executor.shutdownNow()
-        }
+        settings.currentRuntime()
+        settings.pending()
+
+        verify(indexLock, never()).lock()
     }
 
     @Test
-    fun providerSecretIsEncryptedAndMaskedInputPreservesIt() {
-        val saved = settings.saveProvider(
-            EmbeddingProviderRequest(
-                EmbeddingProviderType.OPENAI_COMPATIBLE,
-                "http://embedding/v1/embeddings",
-                "secret",
-            ),
-        )
-        val encrypted = storedApiKey()
-
-        assertThat(saved.apiKey).isEqualTo("********")
-        assertThat(encrypted).doesNotContain("secret")
-
-        settings.saveProvider(
-            EmbeddingProviderRequest(
-                EmbeddingProviderType.OPENAI_COMPATIBLE,
-                "http://embedding/v1/embeddings",
-                "********",
-            ),
-        )
-        assertThat(storedApiKey()).isEqualTo(encrypted)
-
-        val pending = settings.savePending(request("remote", EmbeddingProviderType.OPENAI_COMPATIBLE))
-        assertThat(settings.executionConfig(pending.id).provider?.apiKey).isEqualTo("secret")
-    }
-
-    @Test
-    fun embeddingTestBuildsValidatedRuntimeConfiguration() {
-        mvc.perform(
-            post("/admin/embedding/test-embedding")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """{"model_name":"microsoft/harrier-oss-v1-0.6b","model_dim":1024,"normalize":true}""",
-                ),
-        ).andExpect(status().isOk)
-
-        val config = mockingDetails(modelServer).invocations.single { it.method.name == "test" }
-            .arguments.single() as EmbeddingExecutionConfig
-        assertThat(config.modelName).isEqualTo("microsoft/harrier-oss-v1-0.6b")
-        assertThat(config.modelDim).isEqualTo(1024)
-        assertThat(config.provider).isNull()
-    }
-
-    @Test
-    fun embeddingTestDoesNotSendStoredKeyToAnotherUrl() {
-        settings.saveProvider(
-            EmbeddingProviderRequest(
-                EmbeddingProviderType.OPENAI_COMPATIBLE,
-                "https://stored.example/v1/embeddings",
-                "secret",
-            ),
-        )
-
-        val config = settings.executionConfig(
-            TestEmbeddingRequest(
-                modelName = "remote-model",
-                modelDim = 768,
-                providerType = EmbeddingProviderType.OPENAI_COMPATIBLE,
-                apiUrl = "https://other.example/v1/embeddings",
-            ),
-        )
-
-        assertThat(config.provider?.apiUrl).isEqualTo("https://other.example/v1/embeddings")
-        assertThat(config.provider?.apiKey).isNull()
-
-        val storedUrlConfig = settings.executionConfig(
-            TestEmbeddingRequest(
-                modelName = "remote-model",
-                modelDim = 768,
-                providerType = EmbeddingProviderType.OPENAI_COMPATIBLE,
-                apiUrl = "  https://stored.example/v1/embeddings  ",
-            ),
-        )
-        assertThat(storedUrlConfig.provider?.apiKey).isEqualTo("secret")
-    }
-
-    @Test
-    fun providerUrlMustBeAnAbsoluteHttpEndpoint() {
-        assertThatThrownBy {
-            settings.saveProvider(
-                EmbeddingProviderRequest(EmbeddingProviderType.OPENAI_COMPATIBLE, "file:///tmp/model", null),
-            )
-        }.isInstanceOf(IllegalArgumentException::class.java)
-    }
-
-    @Test
-    fun runningReindexBlocksSettingAndProviderUrlChangesButAllowsKeyRotation() {
-        settings.saveProvider(
-            EmbeddingProviderRequest(EmbeddingProviderType.OPENAI_COMPATIBLE, "http://first/v1/embeddings", "old"),
-        )
-        settings.savePending(request("remote", EmbeddingProviderType.OPENAI_COMPATIBLE))
-        jdbc.update("UPDATE search_settings SET reindex_started_at = CURRENT_TIMESTAMP WHERE status = 'FUTURE'")
-
-        assertThatThrownBy { settings.savePending(request("replacement")) }
-            .isInstanceOf(ApiException::class.java)
-        assertThatThrownBy {
-            settings.saveProvider(
-                EmbeddingProviderRequest(EmbeddingProviderType.OPENAI_COMPATIBLE, "http://second/v1/embeddings", "new"),
-            )
-        }.isInstanceOf(ApiException::class.java)
-
-        val rotated = settings.saveProvider(
-            EmbeddingProviderRequest(EmbeddingProviderType.OPENAI_COMPATIBLE, "http://first/v1/embeddings", "new"),
-        )
-        assertThat(rotated.apiKey).isEqualTo("********")
-    }
-
-    @Test
-    fun portUnitAndFullRecollectStateAreDatabaseEnforced() {
-        val futureId = settings.savePending(request("future")).id
-        jdbc.update("INSERT INTO credentials(source, secret_json) VALUES ('FILE', 'secret')")
-        jdbc.update(
-            "INSERT INTO connectors(name, source, input_type, connector_specific_config) " +
-                "VALUES ('files', 'FILE', 'load_state', '{}')",
-        )
-        jdbc.update(
-            "INSERT INTO connector_credential_pairs(connector_id, credential_id, name) VALUES (1, 1, 'files')",
-        )
-
+    fun `migration removes provider and port state and creates Granite current setting`() {
+        settings.current()
+        assertThat(tableExists("embedding_providers")).isFalse()
+        assertThat(tableExists("reindex_port_attempts")).isFalse()
+        assertThat(columnExists("connector_credential_pairs", "full_recollect_requested")).isFalse()
+        assertThat(columnExists("search_settings", "provider_type")).isFalse()
+        assertThat(columnExists("search_settings", "model_dim")).isFalse()
         assertThat(
             jdbc.queryForObject(
-                "SELECT full_recollect_requested FROM connector_credential_pairs WHERE id = 1",
-                Boolean::class.java,
+                "SELECT model_name FROM search_settings WHERE status = 'PRESENT'",
+                String::class.java,
             ),
-        ).isFalse()
-        jdbc.update(
-            "INSERT INTO reindex_port_attempts(search_settings_id, cc_pair_id) VALUES (?, 1)",
-            futureId,
-        )
-        assertThatThrownBy {
-            jdbc.update(
-                "INSERT INTO reindex_port_attempts(search_settings_id, cc_pair_id) VALUES (?, 1)",
-                futureId,
-            )
-        }.isInstanceOf(DataIntegrityViolationException::class.java)
+        ).isEqualTo("ibm-granite/granite-embedding-311m-multilingual-r2")
     }
 
-    private fun request(
-        model: String,
-        provider: EmbeddingProviderType? = null,
-    ) = SearchSettingsRequest(
-        modelName = model,
-        modelDim = 768,
-        providerType = provider,
-    )
+    private fun tableExists(table: String): Boolean = jdbc.queryForObject(
+        "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
+        Boolean::class.java,
+        table,
+    ) == true
 
-    private fun storedApiKey(): String = requireNotNull(
-        jdbc.queryForObject(
-            "SELECT api_key_encrypted FROM embedding_providers WHERE provider_type = 'OPENAI_COMPATIBLE'",
-            String::class.java,
-        ),
-    )
+    private fun columnExists(table: String, column: String): Boolean = jdbc.queryForObject(
+        "SELECT COUNT(*) > 0 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?",
+        Boolean::class.java,
+        table,
+        column,
+    ) == true
+
+    private fun registryStatus(vararg statuses: Pair<String, String>) =
+        mapper.createObjectNode().apply {
+            set(
+                "models",
+                mapper.createObjectNode().apply {
+                    statuses.forEach { (model, code) ->
+                        set(
+                            model,
+                            mapper.createObjectNode().put("code", code),
+                        )
+                    }
+                },
+            )
+        }
 }

@@ -3,6 +3,7 @@ package com.onyx.kotlin.mcp
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.onyx.kotlin.config.SearchProperties
 import com.onyx.kotlin.documentset.DocumentSetRepository
+import com.onyx.kotlin.indexing.IndexSettingsService
 import com.onyx.kotlin.model.ModelServerClient
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.search.DocumentContextResponse
@@ -258,6 +259,7 @@ class McpSearchToolTest {
             mock(ModelServerClient::class.java),
             mock(OpenSearchIndexer::class.java),
             mock(DocumentSetRepository::class.java),
+            mock(IndexSettingsService::class.java),
         )
         val validationTool = McpSearchTool(realSearch, jacksonObjectMapper())
 
@@ -316,6 +318,7 @@ class McpSearchToolTest {
             mock(ModelServerClient::class.java),
             mock(OpenSearchIndexer::class.java),
             mock(DocumentSetRepository::class.java),
+            mock(IndexSettingsService::class.java),
         )
         val fusionTool = McpSearchTool(realSearch, jacksonObjectMapper())
         val list1 = listOf(
@@ -342,6 +345,7 @@ class McpSearchToolTest {
             mock(ModelServerClient::class.java),
             mock(OpenSearchIndexer::class.java),
             mock(DocumentSetRepository::class.java),
+            mock(IndexSettingsService::class.java),
         )
         val fusionTool = McpSearchTool(realSearch, jacksonObjectMapper())
         val results = listOf(

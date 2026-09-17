@@ -93,8 +93,8 @@ MCP가 backend의 REST endpoint를 다시 호출하지 않습니다.
 - space type: `cosinesimil`
 - method: `hnsw`
 
-인덱스 설정에서 `index.knn=true`를 사용합니다. Embedding 차원은
-`ONYX_EMBEDDING_DIMENSION`으로 설정하며 기본값은 현재 Granite 모델의 768입니다.
+인덱스 설정에서 `index.knn=true`를 사용합니다. 임베딩 차원은
+`search_settings`가 선택한 로컬 모델 목록에서 결정합니다. 초기 Granite 모델은 768차원입니다.
 
 기존 인덱스에서 `embedding`이 동적 숫자 배열로 생성됐으면 mapping을 직접
 변경할 수 없습니다. 이 시스템은 아직 구축 단계이므로 기존 embedding을

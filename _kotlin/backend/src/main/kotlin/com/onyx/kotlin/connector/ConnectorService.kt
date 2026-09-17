@@ -11,6 +11,7 @@ import com.onyx.kotlin.ingestion.IngestionAttemptEntity
 import com.onyx.kotlin.ingestion.IngestionAttemptRepository
 import com.onyx.kotlin.ingestion.IngestionCommandService
 import com.onyx.kotlin.ingestion.IndexedDocumentRepository
+import com.onyx.kotlin.indexing.IndexSettingsService
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.opensearch.PairExternalWriteFence
 import com.onyx.kotlin.security.CredentialCipher
@@ -32,6 +33,7 @@ class ConnectorService(
     private val externalWrites: PairExternalWriteFence,
     private val transactions: TransactionTemplate,
     private val commands: IngestionCommandService,
+    private val indexSettings: IndexSettingsService,
 ) {
     @Transactional
     fun createCredential(request: CredentialRequest): ObjectCreationResponse {
@@ -124,7 +126,7 @@ class ConnectorService(
                 accessType = "public",
             ),
         )
-        commands.enqueuePair(id(pair), false)
+        enqueueNewPair(id(pair))
         return StatusResponse(true, "Connector created successfully", id(pair))
     }
 
@@ -179,7 +181,9 @@ class ConnectorService(
             },
         )
         externalWrites.withPairs(pairIds) {
-            pairIds.forEach(indexer::deletePair)
+            indexSettings.retainedRuntimes().forEach { runtime ->
+                pairIds.forEach { pairId -> indexer.deletePair(runtime.index, pairId) }
+            }
             transactions.executeWithoutResult {
                 pairIds.forEach(documents::deleteAllByCcPairId)
                 connectors.lockById(connectorId)?.let(connectors::delete)
@@ -213,7 +217,7 @@ class ConnectorService(
             },
         )
         externalWrites.withPair(plan.pairId) {
-            indexer.deletePair(plan.pairId)
+            indexSettings.retainedRuntimes().forEach { indexer.deletePair(it.index, plan.pairId) }
             transactions.executeWithoutResult {
                 documents.deleteAllByCcPairId(plan.pairId)
                 pairs.lockById(plan.pairId)?.let(pairs::delete)
@@ -225,9 +229,19 @@ class ConnectorService(
 
     private fun markDeleting(pair: ConnectorCredentialPairEntity) {
         pair.status = PairStatus.DELETING
-        pair.ingestionClaimToken = null
-        pair.ingestionLeaseExpiresAt = null
         pairs.save(pair)
+    }
+
+    private fun enqueueNewPair(pairId: Long) {
+        commands.enqueuePair(pairId, fromBeginning = true)
+        indexSettings.pendingLocked()?.takeIf { it.reindexStartedAt != null }?.let { future ->
+            commands.enqueuePair(
+                pairId,
+                future.id,
+                fromBeginning = true,
+                pollRangeEnd = future.cutoverAt ?: future.reindexStartedAt,
+            )
+        }
     }
 
     @Transactional
@@ -252,12 +266,13 @@ class ConnectorService(
         pair.processingMode = request.processingMode
         pair.status = if (existingPair == null) PairStatus.SCHEDULED else PairStatus.ACTIVE
         val pairId = id(pairs.save(pair))
-        if (existingPair == null) commands.enqueuePair(pairId, fromBeginning = true)
+        if (existingPair == null) enqueueNewPair(pairId)
         return StatusResponse(true, "Credential linked successfully", pairId)
     }
 
     fun pairDetail(pairId: Long): Map<String, Any?> {
         val pair = pair(pairId)
+        val currentSettingsId = indexSettings.currentRuntime().settingsId
         val latest = attempts.findFirstByCcPairIdOrderByIdDesc(pairId)
         val lastSuccessful = lastSuccessfulAttempt(pairId)
         return mapOf(
@@ -265,7 +280,7 @@ class ConnectorService(
             "name" to pair.name,
             "status" to pair.status.name,
             "in_repeated_error_state" to pair.inRepeatedErrorState,
-            "num_docs_indexed" to documents.countByCcPairId(pairId),
+            "num_docs_indexed" to documents.countByCcPairIdAndSearchSettingsId(pairId, currentSettingsId),
             "connector" to connectorSnapshot(connector(pair.connectorId)),
             "credential" to credentialSnapshot(credential(pair.credentialId)),
             "number_of_index_attempts" to attempts.findAllByCcPairIdOrderByIdDesc(pairId).size,

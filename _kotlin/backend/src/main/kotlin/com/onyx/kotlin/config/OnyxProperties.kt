@@ -16,10 +16,6 @@ data class OnyxProperties(
     data class Storage(val root: String = "/var/lib/onyx/files")
     data class ModelServer(
         val baseUrl: String = "http://model-server:9000",
-        val modelName: String = "",
-        val embeddingDimension: Int = 768,
-        val maxContextLength: Int = 512,
-        val normalizeEmbeddings: Boolean = true,
         val connectTimeoutMs: Long = 30_000,
         val readTimeoutMs: Long = 600_000,
         val embedMaxRetries: Int = 2,

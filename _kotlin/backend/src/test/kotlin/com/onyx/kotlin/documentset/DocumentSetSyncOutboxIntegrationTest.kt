@@ -397,6 +397,7 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
             (1..count).map { number ->
                 IndexedDocumentEntity(
                     ccPairId = pairId,
+                    searchSettingsId = 1,
                     sourceDocumentId = "document-$number",
                     title = "title",
                     contentHash = "hash",
@@ -461,6 +462,8 @@ class DocumentSetSyncOutboxIntegrationTest : H2IntegrationTest() {
         fun opensearch(registry: DynamicPropertyRegistry) {
             registry.add("spring.ai.vectorstore.opensearch.uris[0]") { server.url("/").toString().trimEnd('/') }
             registry.add("spring.ai.vectorstore.opensearch.index-name") { "documents" }
+            registry.add("spring.flyway.placeholders.opensearchIndex") { "documents" }
+            registry.add("onyx.opensearch.index") { "documents" }
         }
 
         @JvmStatic

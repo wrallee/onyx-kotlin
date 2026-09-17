@@ -43,12 +43,15 @@ interface ConnectorCredentialPairRepository : JpaRepository<ConnectorCredentialP
             WHERE pair.status IN :statuses
               AND NOT EXISTS (
                   SELECT job.id FROM IngestionJobEntity job
-                  WHERE job.ccPairId = pair.id AND job.state IN :activeStates
+                  WHERE job.ccPairId = pair.id
+                    AND job.searchSettingsId = :searchSettingsId
+                    AND job.state IN :activeStates
               )
         """,
     )
     fun findSchedulable(
         @Param("statuses") statuses: Collection<PairStatus>,
+        @Param("searchSettingsId") searchSettingsId: Long,
         @Param("activeStates") activeStates: Collection<JobState>,
     ): List<ConnectorCredentialPairEntity>
 }

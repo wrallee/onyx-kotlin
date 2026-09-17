@@ -7,6 +7,7 @@ import com.onyx.kotlin.connector.ConnectorCredentialPairRepository
 import com.onyx.kotlin.connector.ConnectorService
 import com.onyx.kotlin.connector.ConnectorSource
 import com.onyx.kotlin.connector.PairStatus
+import com.onyx.kotlin.indexing.IndexSettingsService
 import org.springframework.stereotype.Service
 
 @Service
@@ -16,6 +17,7 @@ class IngestionQueryService(
     private val pairs: ConnectorCredentialPairRepository,
     private val documents: IndexedDocumentRepository,
     private val connectorService: ConnectorService,
+    private val indexSettings: IndexSettingsService,
 ) {
     fun attempts(pairId: Long, page: Int, pageSize: Int): Map<String, Any?> {
         validatePage(page, pageSize)
@@ -72,8 +74,9 @@ class IngestionQueryService(
         )
     }
 
-    fun indexingStatus(source: ConnectorSource?, filter: String?): List<Map<String, Any?>> =
-        pairs.findAll().asSequence()
+    fun indexingStatus(source: ConnectorSource?, filter: String?): List<Map<String, Any?>> {
+        val currentSettingsId = indexSettings.currentRuntime().settingsId
+        return pairs.findAll().asSequence()
             .filter { source == null || connectorService.connector(it.connectorId).source == source }
             .filter { filter.isNullOrBlank() || it.name.contains(filter, true) }
             .groupBy { connectorService.connector(it.connectorId).source }
@@ -84,13 +87,16 @@ class IngestionQueryService(
                         "total_connectors" to values.size,
                         "active_connectors" to values.count { it.status == PairStatus.ACTIVE },
                         "public_connectors" to values.count { it.accessType == "public" },
-                        "total_docs_indexed" to values.sumOf { documents.countByCcPairId(requireNotNull(it.id)) },
+                        "total_docs_indexed" to values.sumOf {
+                            documents.countByCcPairIdAndSearchSettingsId(requireNotNull(it.id), currentSettingsId)
+                        },
                     ),
                     "current_page" to 1,
                     "total_pages" to 1,
-                    "indexing_statuses" to values.map(::indexingRow),
+                    "indexing_statuses" to values.map { indexingRow(it, currentSettingsId) },
                 )
             }
+    }
 
     fun connectorStatuses(): List<Map<String, Any?>> = pairs.findAll().map { pair ->
         mapOf(
@@ -103,7 +109,7 @@ class IngestionQueryService(
         )
     }
 
-    private fun indexingRow(pair: ConnectorCredentialPairEntity): Map<String, Any?> {
+    private fun indexingRow(pair: ConnectorCredentialPairEntity, currentSettingsId: Long): Map<String, Any?> {
         val pairId = requireNotNull(pair.id)
         val latest = attempts.findFirstByCcPairIdOrderByIdDesc(pairId)
         val lastSuccessful = attempts.findFirstByCcPairIdAndStatusInOrderByTimeStartedDescIdDesc(
@@ -123,7 +129,7 @@ class IngestionQueryService(
             "last_success" to lastSuccessful?.timeStarted,
             "is_editable" to true,
             "permissions" to mapOf("edit" to true, "delete" to true, "manage" to true),
-            "docs_indexed" to documents.countByCcPairId(pairId),
+            "docs_indexed" to documents.countByCcPairIdAndSearchSettingsId(pairId, currentSettingsId),
             "latest_index_attempt_docs_indexed" to latest?.totalDocsIndexed,
         )
     }

@@ -28,7 +28,7 @@ enum class AttemptStatus(@get:JsonValue val value: String) {
     COMPLETED_WITH_ERRORS("completed_with_errors"),
     CANCELED("canceled"),
 }
-enum class JobState { QUEUED, RUNNING, SUCCEEDED, FAILED }
+enum class JobState { QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELED }
 @Entity
 @Table(name = "ingestion_attempts", indexes = [Index(name = "idx_attempt_pair", columnList = "cc_pair_id")])
 class IngestionAttemptEntity(
@@ -36,6 +36,8 @@ class IngestionAttemptEntity(
     var id: Long? = null,
     @Column(name = "cc_pair_id", nullable = false)
     var ccPairId: Long = 0,
+    @Column(name = "search_settings_id", nullable = false)
+    var searchSettingsId: Long = 0,
     @Enumerated(EnumType.STRING)
     var status: AttemptStatus = AttemptStatus.NOT_STARTED,
     @Column(name = "from_beginning", nullable = false)
@@ -66,9 +68,12 @@ class IngestionAttemptEntity(
 
 @Entity
 @Table(name = "ingestion_checkpoints")
+@IdClass(IngestionCheckpointId::class)
 class IngestionCheckpointEntity(
     @Id @Column(name = "cc_pair_id")
     var ccPairId: Long = 0,
+    @Id @Column(name = "search_settings_id")
+    var searchSettingsId: Long = 0,
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "checkpoint_json", nullable = false, columnDefinition = "varchar")
     var checkpointJson: JsonNode? = null,
@@ -85,6 +90,8 @@ class IngestionJobEntity(
     var attemptId: Long = 0,
     @Column(name = "cc_pair_id", nullable = false)
     var ccPairId: Long = 0,
+    @Column(name = "search_settings_id", nullable = false)
+    var searchSettingsId: Long = 0,
     @Enumerated(EnumType.STRING)
     var state: JobState = JobState.QUEUED,
     @Column(name = "active_marker")
@@ -115,6 +122,8 @@ class IndexedDocumentEntity(
     var id: Long? = null,
     @Column(name = "cc_pair_id", nullable = false)
     var ccPairId: Long = 0,
+    @Column(name = "search_settings_id", nullable = false)
+    var searchSettingsId: Long = 0,
     @Column(name = "source_document_id", nullable = false)
     var sourceDocumentId: String = "",
     var title: String = "",
@@ -138,6 +147,11 @@ class IndexedDocumentEntity(
     @Column(name = "secondary_owners", nullable = false, columnDefinition = "varchar")
     var secondaryOwners: List<String> = emptyList(),
 )
+
+data class IngestionCheckpointId(
+    var ccPairId: Long = 0,
+    var searchSettingsId: Long = 0,
+) : Serializable
 
 @Entity
 @Table(name = "ingestion_errors")

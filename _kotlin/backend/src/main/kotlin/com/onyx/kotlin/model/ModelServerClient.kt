@@ -9,7 +9,6 @@ import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
 import tools.jackson.databind.JsonNode
-import java.net.URI
 
 internal const val DEFAULT_LOCAL_EMBEDDING_MODEL = "ibm-granite/granite-embedding-311m-multilingual-r2"
 
@@ -20,12 +19,6 @@ data class EmbeddingExecutionConfig(
     val maxContextLength: Int,
     val queryPrefix: String? = null,
     val passagePrefix: String? = null,
-    val provider: OpenAiCompatibleEmbeddingProvider? = null,
-)
-
-data class OpenAiCompatibleEmbeddingProvider(
-    val apiUrl: String,
-    val apiKey: String? = null,
 )
 
 data class ExistingEmbeddingChunk(
@@ -53,18 +46,11 @@ class ModelServerClient(
 
     private val client = clientBuilder.buildModelServerClient(properties.modelServer)
 
-    fun embed(texts: List<String>): List<List<Double>> = embed(texts, "passage", defaultConfig())
-
     fun embed(texts: List<String>, config: EmbeddingExecutionConfig): List<List<Double>> =
         embed(texts, "passage", config)
 
-    fun embedQuery(query: String): List<Double> = embed(listOf(query), "query", defaultConfig()).single()
-
     fun embedQuery(query: String, config: EmbeddingExecutionConfig): List<Double> =
         embed(listOf(query), "query", config).single()
-
-    fun chunkAndEmbed(text: String, title: String, metadataContext: String): List<ChunkEmbedding> =
-        chunkAndEmbed(text, title, metadataContext, defaultConfig())
 
     fun chunkAndEmbed(
         text: String,
@@ -96,7 +82,7 @@ class ModelServerClient(
                 "model_name" to config.modelName,
                 "max_context_length" to config.maxContextLength,
                 "manual_passage_prefix" to config.passagePrefix,
-            ) + providerFields(config),
+            ),
         ).preparedChunks()
         val embeddings = modelServerEmbed(
             response.map(PreparedChunk::embeddingText),
@@ -134,7 +120,7 @@ class ModelServerClient(
                 "max_context_length" to config.maxContextLength,
                 "normalize_embeddings" to config.normalize,
                 "manual_passage_prefix" to config.passagePrefix,
-            ) + providerFields(config),
+            ),
         ).path("chunks")
         check(chunks.isArray && chunks.size() > 0) { "Model server returned no chunks" }
         return chunks.toList().map { chunk ->
@@ -190,7 +176,7 @@ class ModelServerClient(
                 "text_type" to textType,
                 "manual_query_prefix" to config.queryPrefix.takeIf { includePrefix },
                 "manual_passage_prefix" to config.passagePrefix.takeIf { includePrefix },
-            ) + providerFields(config),
+            ),
         )
         return response.path("embeddings").toList().map { vector ->
             vector.embeddingVector()
@@ -228,18 +214,10 @@ class ModelServerClient(
         }
     }
 
-    private fun defaultConfig() = EmbeddingExecutionConfig(
-        modelName = properties.modelServer.modelName.ifBlank { DEFAULT_LOCAL_EMBEDDING_MODEL },
-        modelDim = properties.modelServer.embeddingDimension,
-        normalize = properties.modelServer.normalizeEmbeddings,
-        maxContextLength = properties.modelServer.maxContextLength,
-    )
-
     private fun validate(config: EmbeddingExecutionConfig) {
         require(config.modelName.isNotBlank()) { "Embedding model name must not be blank" }
         require(config.modelDim > 0) { "Embedding model dimension must be positive" }
         require(config.maxContextLength > 0) { "Embedding context length must be positive" }
-        config.provider?.let { requireValidEmbeddingProviderUrl(it.apiUrl) }
     }
 
     private fun validateEmbeddings(embeddings: List<List<Double>>, expectedCount: Int, expectedDimension: Int) {
@@ -256,21 +234,4 @@ class ModelServerClient(
         return toList().map { it.asDouble() }
     }
 
-    private fun providerFields(config: EmbeddingExecutionConfig): Map<String, Any?> = config.provider?.let {
-        mapOf(
-            "provider_type" to "openai_compatible",
-            "api_url" to requireValidEmbeddingProviderUrl(it.apiUrl),
-            "api_key" to it.apiKey,
-        )
-    } ?: emptyMap()
-}
-
-internal fun requireValidEmbeddingProviderUrl(value: String): String {
-    val normalized = value.trim()
-    val uri = runCatching { URI(normalized) }.getOrNull()
-    require(
-        uri != null && uri.isAbsolute && uri.scheme?.lowercase() in setOf("http", "https") &&
-            !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null,
-    ) { "Embedding provider URL must be an absolute HTTP(S) URL without user info or a fragment" }
-    return normalized
 }

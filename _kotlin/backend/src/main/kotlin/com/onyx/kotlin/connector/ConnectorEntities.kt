@@ -17,7 +17,6 @@ import org.hibernate.annotations.UpdateTimestamp
 import org.hibernate.type.SqlTypes
 import java.io.Serializable
 import java.time.Instant
-import java.util.UUID
 
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonValue
@@ -111,12 +110,6 @@ class ConnectorCredentialPairEntity(
     var inRepeatedErrorState: Boolean = false,
     @Column(name = "last_pruned_at")
     var lastPrunedAt: Instant? = null,
-    @Column(name = "ingestion_claim_token")
-    var ingestionClaimToken: UUID? = null,
-    @Column(name = "ingestion_lease_expires_at")
-    var ingestionLeaseExpiresAt: Instant? = null,
-    @Column(name = "full_recollect_requested", nullable = false)
-    var fullRecollectRequested: Boolean = false,
     @CreationTimestamp @Column(name = "created_at", updatable = false)
     var createdAt: Instant? = null,
     @UpdateTimestamp @Column(name = "updated_at")

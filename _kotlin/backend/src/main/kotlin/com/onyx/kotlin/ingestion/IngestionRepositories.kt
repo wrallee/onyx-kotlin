@@ -15,6 +15,9 @@ import java.util.UUID
 import com.onyx.kotlin.connector.ConnectorCredentialPairEntity
 
 interface IngestionAttemptRepository : JpaRepository<IngestionAttemptEntity, Long> {
+    fun findAllBySearchSettingsIdOrderByIdAsc(searchSettingsId: Long): List<IngestionAttemptEntity>
+    fun findAllByCcPairIdAndSearchSettingsIdOrderByIdDesc(ccPairId: Long, searchSettingsId: Long): List<IngestionAttemptEntity>
+    fun findFirstByCcPairIdAndSearchSettingsIdOrderByIdDesc(ccPairId: Long, searchSettingsId: Long): IngestionAttemptEntity?
     fun findAllByCcPairIdOrderByIdDesc(ccPairId: Long): List<IngestionAttemptEntity>
     fun findFirstByCcPairIdOrderByIdDesc(ccPairId: Long): IngestionAttemptEntity?
     fun findFirstByCcPairIdAndStatusInOrderByTimeStartedDescIdDesc(
@@ -22,11 +25,27 @@ interface IngestionAttemptRepository : JpaRepository<IngestionAttemptEntity, Lon
         statuses: Collection<AttemptStatus>,
     ): IngestionAttemptEntity?
     fun findFirstByCcPairIdAndPruneOnlyFalseOrderByTimeUpdatedDescIdDesc(ccPairId: Long): IngestionAttemptEntity?
+    @Transactional
+    fun deleteAllBySearchSettingsId(searchSettingsId: Long)
 }
 
-interface IngestionCheckpointRepository : JpaRepository<IngestionCheckpointEntity, Long>
+interface IngestionCheckpointRepository : JpaRepository<IngestionCheckpointEntity, IngestionCheckpointId> {
+    @Transactional
+    fun deleteAllBySearchSettingsId(searchSettingsId: Long)
+}
 
 interface IngestionJobRepository : JpaRepository<IngestionJobEntity, Long> {
+    fun findAllBySearchSettingsIdAndStateIn(
+        searchSettingsId: Long,
+        states: Collection<JobState>,
+    ): List<IngestionJobEntity>
+    @Transactional
+    fun deleteAllBySearchSettingsId(searchSettingsId: Long)
+    fun findFirstByCcPairIdAndSearchSettingsIdAndStateInOrderById(
+        ccPairId: Long,
+        searchSettingsId: Long,
+        states: Collection<JobState>,
+    ): IngestionJobEntity?
     fun findFirstByCcPairIdAndStateInOrderById(
         ccPairId: Long,
         states: Collection<JobState>,
@@ -38,7 +57,6 @@ interface IngestionJobRepository : JpaRepository<IngestionJobEntity, Long> {
             FROM IngestionJobEntity job, ConnectorCredentialPairEntity pair
             WHERE pair.id = job.ccPairId
               AND pair.status <> com.onyx.kotlin.connector.PairStatus.DELETING
-              AND (pair.ingestionLeaseExpiresAt IS NULL OR pair.ingestionLeaseExpiresAt < :now)
               AND (
                   (job.state = com.onyx.kotlin.ingestion.JobState.QUEUED AND job.runAfter <= :now)
                   OR (job.state = com.onyx.kotlin.ingestion.JobState.RUNNING
@@ -82,6 +100,12 @@ interface IngestionJobRepository : JpaRepository<IngestionJobEntity, Long> {
 }
 
 interface IndexedDocumentRepository : JpaRepository<IndexedDocumentEntity, Long> {
+    fun findByCcPairIdAndSearchSettingsIdAndSourceDocumentId(
+        ccPairId: Long,
+        searchSettingsId: Long,
+        sourceDocumentId: String,
+    ): IndexedDocumentEntity?
+    fun countByCcPairIdAndSearchSettingsId(ccPairId: Long, searchSettingsId: Long): Long
     fun findByCcPairIdAndSourceDocumentId(ccPairId: Long, sourceDocumentId: String): IndexedDocumentEntity?
     fun findAllByCcPairId(ccPairId: Long): List<IndexedDocumentEntity>
     fun findAllByCcPairIdAndSourceDocumentIdIn(
@@ -93,10 +117,24 @@ interface IndexedDocumentRepository : JpaRepository<IndexedDocumentEntity, Long>
         afterSourceDocumentId: String,
         pageable: Pageable,
     ): List<IndexedDocumentEntity>
+    fun findAllByCcPairIdAndSearchSettingsIdAndSourceDocumentIdGreaterThanOrderBySourceDocumentId(
+        ccPairId: Long,
+        searchSettingsId: Long,
+        afterSourceDocumentId: String,
+        pageable: Pageable,
+    ): List<IndexedDocumentEntity>
     fun countByCcPairId(ccPairId: Long): Long
     fun deleteAllByCcPairId(ccPairId: Long)
     @Transactional
+    fun deleteAllBySearchSettingsId(searchSettingsId: Long)
+    @Transactional
     fun deleteByCcPairIdAndSourceDocumentIdIn(ccPairId: Long, sourceDocumentIds: Collection<String>): Long
+    @Transactional
+    fun deleteByCcPairIdAndSearchSettingsIdAndSourceDocumentIdIn(
+        ccPairId: Long,
+        searchSettingsId: Long,
+        sourceDocumentIds: Collection<String>,
+    ): Long
 }
 
 interface IngestionErrorRepository : JpaRepository<IngestionErrorEntity, Long> {
@@ -107,6 +145,7 @@ interface IngestionErrorRepository : JpaRepository<IngestionErrorEntity, Long> {
             SELECT error FROM IngestionErrorEntity error, IngestionAttemptEntity attempt
             WHERE error.attemptId = attempt.id
               AND attempt.ccPairId = :ccPairId
+              AND attempt.searchSettingsId = :searchSettingsId
               AND error.sourceDocumentId = :sourceDocumentId
               AND error.isResolved = false
             ORDER BY error.id DESC
@@ -114,6 +153,7 @@ interface IngestionErrorRepository : JpaRepository<IngestionErrorEntity, Long> {
     )
     fun findUnresolvedByCcPairIdAndSourceDocumentId(
         @Param("ccPairId") ccPairId: Long,
+        @Param("searchSettingsId") searchSettingsId: Long,
         @Param("sourceDocumentId") sourceDocumentId: String,
     ): List<IngestionErrorEntity>
 
@@ -122,18 +162,23 @@ interface IngestionErrorRepository : JpaRepository<IngestionErrorEntity, Long> {
             SELECT error FROM IngestionErrorEntity error, IngestionAttemptEntity attempt
             WHERE error.attemptId = attempt.id
               AND attempt.ccPairId = :ccPairId
+              AND attempt.searchSettingsId = :searchSettingsId
               AND error.entityId IS NOT NULL
               AND error.isResolved = false
             ORDER BY error.id DESC
         """,
     )
-    fun findUnresolvedEntityErrorsByCcPairId(@Param("ccPairId") ccPairId: Long): List<IngestionErrorEntity>
+    fun findUnresolvedEntityErrorsByCcPairId(
+        @Param("ccPairId") ccPairId: Long,
+        @Param("searchSettingsId") searchSettingsId: Long,
+    ): List<IngestionErrorEntity>
 
     @Query(
         """
             SELECT error FROM IngestionErrorEntity error, IngestionAttemptEntity attempt
             WHERE error.attemptId = attempt.id
               AND attempt.ccPairId = :ccPairId
+              AND attempt.searchSettingsId = :searchSettingsId
               AND error.attemptId <> :attemptId
               AND error.isResolved = false
             ORDER BY error.id DESC
@@ -141,6 +186,7 @@ interface IngestionErrorRepository : JpaRepository<IngestionErrorEntity, Long> {
     )
     fun findPriorUnresolvedByCcPairId(
         @Param("ccPairId") ccPairId: Long,
+        @Param("searchSettingsId") searchSettingsId: Long,
         @Param("attemptId") attemptId: Long,
     ): List<IngestionErrorEntity>
 }
@@ -177,9 +223,16 @@ class IngestionEnumerationRepository(
         rows.saveAll(ids.filterNot(existing::contains).map { IngestionEnumeratedDocumentEntity(attemptId, it) })
     }
 
-    fun findMissingPage(pairId: Long, attemptId: Long, afterSourceDocumentId: String, limit: Int): List<String> =
+    fun findMissingPage(
+        pairId: Long,
+        searchSettingsId: Long,
+        attemptId: Long,
+        afterSourceDocumentId: String,
+        limit: Int,
+    ): List<String> =
         rows.findMissingSourceDocumentIds(
             pairId,
+            searchSettingsId,
             attemptId,
             afterSourceDocumentId,
             org.springframework.data.domain.PageRequest.of(0, limit),
@@ -198,6 +251,7 @@ interface IngestionEnumerationJpaRepository :
             SELECT document.sourceDocumentId
             FROM IndexedDocumentEntity document
             WHERE document.ccPairId = :pairId
+              AND document.searchSettingsId = :searchSettingsId
               AND document.sourceDocumentId > :afterSourceDocumentId
               AND NOT EXISTS (
                   SELECT enumerated.sourceDocumentId FROM IngestionEnumeratedDocumentEntity enumerated
@@ -209,6 +263,7 @@ interface IngestionEnumerationJpaRepository :
     )
     fun findMissingSourceDocumentIds(
         @Param("pairId") pairId: Long,
+        @Param("searchSettingsId") searchSettingsId: Long,
         @Param("attemptId") attemptId: Long,
         @Param("afterSourceDocumentId") afterSourceDocumentId: String,
         pageable: Pageable,

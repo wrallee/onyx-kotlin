@@ -39,6 +39,25 @@ class OpenSearchIndexerTest {
     }
 
     @Test
+    fun `reset index deletes and recreates the selected target`() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200))
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(acknowledgedResponse())
+            server.start()
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
+
+            indexer.resetIndex(OpenSearchIndexTarget("harrier", 1024))
+
+            assertThat(recordedRequests(server)).containsExactly(
+                "DELETE /harrier",
+                "HEAD /harrier",
+                "PUT /harrier",
+            )
+        }
+    }
+
+    @Test
     fun `search candidate includes the indexed document update time in metadata`() {
         val updatedAt = "2026-09-15T00:00:00Z"
         val candidate = OpenSearchChunkDocument(
@@ -269,7 +288,7 @@ class OpenSearchIndexerTest {
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites, 768)
 
-            indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1))
+            indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), List(768) { 0.1 })
 
             server.takeRequest()
             val create = server.takeRequest()
@@ -324,6 +343,36 @@ class OpenSearchIndexerTest {
     }
 
     @Test
+    fun `targeted upsert creates and writes to the selected index`() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(acknowledgedResponse())
+            server.enqueue(indexSuccessResponse())
+            server.start()
+            val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
+
+            indexer.upsert(
+                OpenSearchIndexTarget("chunks-harrier", 3),
+                7,
+                "one",
+                0,
+                "One",
+                "content",
+                null,
+                emptyMap(),
+                listOf(0.1, 0.2, 0.3),
+            )
+
+            assertThat(server.takeRequest().path).isEqualTo("/chunks-harrier")
+            val create = server.takeRequest()
+            assertThat(create.path).isEqualTo("/chunks-harrier")
+            assertThat(mapper.readTree(create.body.readUtf8()).path("mappings").path("properties")
+                .path("embedding").path("dimension").asInt()).isEqualTo(3)
+            assertThat(server.takeRequest().path).startsWith("/chunks-harrier/_doc/")
+        }
+    }
+
+    @Test
     fun `upsert stores the connector source type on each chunk`() {
         MockWebServer().use { server ->
             enqueueKeywordMapping(server)
@@ -332,7 +381,7 @@ class OpenSearchIndexerTest {
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             indexer.upsert(
-                7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1),
+                7, "one", 0, "One", "content", null, emptyMap(), List(768) { 0.1 },
                 sourceType = ConnectorSource.JIRA,
                 indexedMetadata = IndexedMetadata(
                     projectKey = "onyx",
@@ -365,7 +414,7 @@ class OpenSearchIndexerTest {
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
             val error = org.junit.jupiter.api.assertThrows<IllegalStateException> {
-                indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1))
+                indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), List(768) { 0.1 })
             }
 
             assertThat(error.message).contains("mapping")
@@ -466,7 +515,7 @@ class OpenSearchIndexerTest {
             server.start()
             val indexer = OpenSearchIndexer(testProperties(server), null, mapper, externalWrites)
 
-            indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), listOf(0.1))
+            indexer.upsert(7, "one", 0, "One", "content", null, emptyMap(), List(768) { 0.1 })
 
             val body = mapper.readTree(takeOperationRequest(server).body.readUtf8())
             assertThat(body.has("external_user_emails")).isTrue()
@@ -495,7 +544,7 @@ class OpenSearchIndexerTest {
                 "content",
                 null,
                 emptyMap(),
-                listOf(0.1),
+                List(768) { 0.1 },
                 primaryOwners = listOf("owner@example.com"),
             )
 
