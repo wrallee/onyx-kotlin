@@ -11,11 +11,18 @@ score fusion.
 - PostgreSQL-backed jobs, attempts, checkpoints, and document sets
 - Tika extraction, Python model-server calls, and OpenSearch indexing
 - Hybrid keyword and vector search through a Streamable HTTP MCP endpoint
+- Persisted current and pending embedding settings, provider tests, and encrypted
+  OpenAI-compatible provider credentials through backend compatibility APIs
 - Authentication-free admin UI for local or private networks
 
 All other connector cards and unrelated admin routes remain visible but are
 disabled. Document Sets are always public; user and group controls are visible
 but disabled.
+
+The Index Settings page and embedding-model switchover are not in the supported
+UI scope. The backend can store and test a provider and stage pending settings.
+Live search and ingestion still use the environment-configured model until the
+reindex and switchover flow is implemented.
 
 ## Model artifacts
 
@@ -31,10 +38,11 @@ See `model-server/MODELS.md` for revisions and SHA-256 values.
 
 The Kotlin backend sends every chunking and embedding request to the Python
 model-server. Granite uses OpenVINO INT8. Harrier loads from a user mount through
-SentenceTransformers and PyTorch. OpenAI-compatible requests use only the
-configured endpoint and do not load a local embedding model. The current search
-does not call a reranker. The optional GTE and BGE artifacts remain available for
-evaluation.
+SentenceTransformers and PyTorch. Explicit OpenAI-compatible requests use only
+the configured endpoint and do not load a local embedding model. The current
+live search and ingestion paths use the environment-configured local model. The
+current search does not call a reranker. The optional GTE and BGE artifacts
+remain available for evaluation.
 
 ## Run
 
@@ -49,7 +57,8 @@ Local Compose installs the plugin idempotently in the stock OpenSearch container
 The application applies compatible mapping additions and reports incompatible mappings.
 It never deletes or migrates index data.
 
-Download the pinned Granite artifact, then create the local environment file and set a unique credential key:
+For the default Granite runtime, download the pinned artifact. Then create the
+local environment file and set a unique credential key:
 
 ```bash
 cd _kotlin
@@ -125,9 +134,10 @@ OpenSearch returns one result per logical chunk. A logical chunk combines
 collapse while adjacent chunks remain. Set `ONYX_SEARCH_CANDIDATE_MULTIPLIER`
 to change the candidate multiplier.
 
-Run a full connector reindex after deployment. Existing chunks do not contain
-the new normalized metadata or token-aware contextual chunks. Metadata filters
-can omit those chunks until the reindex finishes.
+After upgrading a stack that already contains chunks from before normalized
+metadata and token-aware contextual chunking, run a full connector reindex.
+Fresh stacks need no extra reindex. Metadata filters can omit old chunks until
+an upgraded stack finishes the reindex.
 
 The MCP endpoint has no authentication in this development version. Do not
 expose it beyond the intended private environment until authentication exists.
