@@ -2,6 +2,7 @@ package com.onyx.kotlin.search
 
 import com.onyx.kotlin.config.SearchProperties
 import com.onyx.kotlin.documentset.DocumentSetRepository
+import com.onyx.kotlin.indexing.IndexSettingsService
 import com.onyx.kotlin.model.ModelServerClient
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.search.SearchCandidate
@@ -15,6 +16,7 @@ class SearchService(
     private val modelServer: ModelServerClient,
     private val indexer: OpenSearchIndexer,
     private val documentSetRepository: DocumentSetRepository,
+    private val settings: IndexSettingsService,
 ) {
     @JvmOverloads
     fun search(
@@ -36,9 +38,11 @@ class SearchService(
             require(unknown.isEmpty()) { "Unknown document sets: ${unknown.joinToString()}" }
         }
         val selectedMetadata = metadataFilters.normalized()
+        val runtime = settings.currentRuntime()
 
         val ranked = when (searchType) {
             SearchType.KEYWORD -> indexer.keywordSearch(
+                runtime.index,
                 query,
                 selectedSets,
                 limit,
@@ -47,7 +51,8 @@ class SearchService(
                 selectedMetadata,
             )
             SearchType.SEMANTIC -> indexer.vectorSearch(
-                modelServer.embedQuery(query),
+                runtime.index,
+                modelServer.embedQuery(query, runtime.embedding),
                 selectedSets,
                 limit,
                 sourceTypes,
@@ -55,8 +60,9 @@ class SearchService(
                 selectedMetadata,
             )
             SearchType.HYBRID -> indexer.hybridSearch(
+                runtime.index,
                 query,
-                modelServer.embedQuery(query),
+                modelServer.embedQuery(query, runtime.embedding),
                 selectedSets,
                 limit,
                 sourceTypes,
@@ -137,13 +143,14 @@ class SearchService(
         require(id.isNotBlank() && id.length <= MAX_RESULT_ID_CHARS) {
             "id must contain 1 to $MAX_RESULT_ID_CHARS characters"
         }
-        val selected = requireNotNull(indexer.chunkById(id)) { "Search result not found: $id" }
+        val runtime = settings.currentRuntime()
+        val selected = requireNotNull(indexer.chunkById(runtime.index, id)) { "Search result not found: $id" }
         val ccPairId = requireNotNull(selected.ccPairId) { "Search result has no cc_pair_id: $id" }
         val above = chunksAbove.coerceIn(0, MAX_CONTEXT_CHUNKS)
         val below = chunksBelow.coerceIn(0, MAX_CONTEXT_CHUNKS)
         val minChunkId = (selected.chunkId - above).coerceAtLeast(0)
         val maxChunkId = selected.chunkId + below
-        val chunks = indexer.chunksInRange(ccPairId, selected.sourceDocumentId, minChunkId, maxChunkId)
+        val chunks = indexer.chunksInRange(runtime.index, ccPairId, selected.sourceDocumentId, minChunkId, maxChunkId)
             .sortedBy { it.chunkId }
             .map { DocumentContextChunk(it.chunkId, it.content) }
         return DocumentContextResponse(id, selected.sourceDocumentId, chunks)

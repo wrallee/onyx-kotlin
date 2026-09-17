@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from app.contracts import EmbedRequest
 from app.main import app, embedding_runtime
+from app.runtime import GRANITE_MODEL_NAME
 from fastapi.testclient import TestClient
 
 
@@ -27,6 +29,14 @@ def test_health_contract(client: TestClient) -> None:
     assert response.status_code == 200
 
 
+def test_provider_fields_are_not_part_of_the_contract() -> None:
+    fields = EmbedRequest.model_fields
+
+    assert "provider_type" not in fields
+    assert "api_url" not in fields
+    assert "api_key" not in fields
+
+
 def test_model_status_reports_optional_harrier(client: TestClient) -> None:
     response = client.get("/api/model-status")
 
@@ -44,7 +54,7 @@ def test_embed_contract_with_fake_runtime(monkeypatch, client: TestClient) -> No
         "/encoder/bi-encoder-embed",
         json={
             "texts": ["hello", "안녕하세요"],
-            "model_name": embedding_runtime.settings.embedding_model_name,
+            "model_name": GRANITE_MODEL_NAME,
             "max_context_length": 512,
             "normalize_embeddings": True,
             "text_type": "passage",
@@ -69,7 +79,7 @@ def test_chunk_and_embed_contract_with_fake_runtime(
             "text": "첫 문장입니다. 둘째 문장입니다.",
             "title": "테스트",
             "metadata_context": "Source: jira",
-            "model_name": embedding_runtime.settings.embedding_model_name,
+            "model_name": GRANITE_MODEL_NAME,
             "max_context_length": 512,
             "normalize_embeddings": True,
         },
@@ -85,34 +95,6 @@ def test_chunk_and_embed_contract_with_fake_runtime(
             }
         ]
     }
-
-
-def test_remote_chunk_contract_reaches_the_same_model_server_endpoint(
-    monkeypatch, client: TestClient
-) -> None:
-    captured = []
-
-    def chunk_and_embed(request):
-        captured.append(request)
-        return [(request.text, [1.0, 0.0], 12)]
-
-    monkeypatch.setattr(embedding_runtime, "chunk_and_embed", chunk_and_embed)
-
-    response = client.post(
-        "/encoder/chunk-and-embed",
-        json={
-            "text": "본문",
-            "model_name": "remote-model",
-            "provider_type": "openai_compatible",
-            "api_url": "https://embedding.example/v1/embeddings",
-            "api_key": "secret",
-        },
-    )
-
-    assert response.status_code == 200
-    assert captured[0].provider_type == "openai_compatible"
-    assert captured[0].api_url == "https://embedding.example/v1/embeddings"
-    assert captured[0].api_key == "secret"
 
 
 def test_chunk_contract_exposes_prepared_embedding_text(
@@ -132,7 +114,7 @@ def test_chunk_contract_exposes_prepared_embedding_text(
         json={
             "text": "본문",
             "title": "테스트",
-            "model_name": embedding_runtime.settings.embedding_model_name,
+            "model_name": GRANITE_MODEL_NAME,
             "max_context_length": 512,
             "normalize_embeddings": True,
         },

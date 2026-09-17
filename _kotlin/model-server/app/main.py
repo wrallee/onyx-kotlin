@@ -57,7 +57,6 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         READY.labels("embedding").set(0)
-        embedding_runtime.close()
 
 
 app = FastAPI(title="Onyx Python Model Server", version="1.0.0", lifespan=lifespan)

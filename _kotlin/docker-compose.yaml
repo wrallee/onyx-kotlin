@@ -7,7 +7,6 @@ x-backend-environment: &backend-environment
   ONYX_CREDENTIAL_ENCRYPTION_KEY: ${ONYX_CREDENTIAL_ENCRYPTION_KEY:?Set a base64-encoded 32-byte key}
   ONYX_FILE_STORAGE_ROOT: /var/lib/onyx/files
   MODEL_SERVER_URL: http://model-server:9000
-  ONYX_EMBEDDING_MODEL_NAME: ${ONYX_EMBEDDING_MODEL_NAME:-ibm-granite/granite-embedding-311m-multilingual-r2}
   ONYX_SEARCH_CANDIDATE_MULTIPLIER: ${ONYX_SEARCH_CANDIDATE_MULTIPLIER:-5}
   ONYX_HYBRID_NORMALIZATION: ${ONYX_HYBRID_NORMALIZATION:-min_max}
   ONYX_HYBRID_KEYWORD_WEIGHT: ${ONYX_HYBRID_KEYWORD_WEIGHT:-0.5}
@@ -86,7 +85,6 @@ services:
       context: ./model-server
     environment:
       EMBEDDING_MODEL_PATH: /models/granite-embedding-311m-multilingual-r2-int8-openvino
-      EMBEDDING_MODEL_NAME: ${ONYX_EMBEDDING_MODEL_NAME:-ibm-granite/granite-embedding-311m-multilingual-r2}
       HARRIER_MODEL_PATH: ${HARRIER_MODEL_PATH:-/models/harrier-oss-v1-0.6b}
       MODEL_INFERENCE_CONCURRENCY: ${MODEL_INFERENCE_CONCURRENCY:-1}
       TORCH_NUM_THREADS: ${TORCH_NUM_THREADS:-1}

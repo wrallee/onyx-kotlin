@@ -18,6 +18,10 @@ import com.onyx.kotlin.ingestion.IngestionJobRepository
 import com.onyx.kotlin.ingestion.IndexedDocumentEntity
 import com.onyx.kotlin.ingestion.IndexedDocumentRepository
 import com.onyx.kotlin.ingestion.JobState
+import com.onyx.kotlin.indexing.IndexModelStatus
+import com.onyx.kotlin.indexing.IndexSettingsService
+import com.onyx.kotlin.indexing.SearchSettingsEntity
+import com.onyx.kotlin.indexing.SearchSettingsRepository
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.connector.ConnectorService
 import com.onyx.kotlin.connector.FileStorageService
@@ -62,6 +66,8 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var storedFiles: FileStorageService
     @Autowired private lateinit var properties: OnyxProperties
+    @Autowired private lateinit var indexSettings: IndexSettingsService
+    @Autowired private lateinit var searchSettings: SearchSettingsRepository
     @MockitoBean private lateinit var indexer: OpenSearchIndexer
 
     @BeforeEach
@@ -70,7 +76,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
             "document_set_sync_outbox", "ingestion_errors",
             "ingestion_jobs", "ingestion_attempts", "ingestion_checkpoints", "indexed_documents",
             "document_set_cc_pairs", "document_sets", "connector_credential_pairs", "connectors", "credentials",
+            "search_settings",
         )
+        indexSettings.current()
     }
 
     @Test
@@ -368,6 +376,31 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
+    fun documentCountsOnlyIncludeTheCurrentIndex() {
+        val pairId = createPairWithoutQueuedAttempt()
+        val currentId = indexSettings.current().id
+        val pastId = requireNotNull(
+            searchSettings.save(
+                SearchSettingsEntity(
+                    modelName = "microsoft/harrier-oss-v1-0.6b",
+                    indexName = "onyx-kotlin-chunks-harrier",
+                    status = IndexModelStatus.PAST,
+                    singletonMarker = null,
+                ),
+            ).id,
+        )
+        saveIndexedDocument(pairId, "current", currentId)
+        saveIndexedDocument(pairId, "past", pastId)
+
+        val detail = request(get("/manage/admin/cc-pair/$pairId"))
+        val listing = postJson("/manage/admin/connector/indexing-status", emptyMap<String, Any>()).body.first()
+
+        assertThat(detail.body.path("num_docs_indexed").asLong()).isEqualTo(1)
+        assertThat(listing.path("summary").path("total_docs_indexed").asLong()).isEqualTo(1)
+        assertThat(listing.path("indexing_statuses").first().path("docs_indexed").asLong()).isEqualTo(1)
+    }
+
+    @Test
     fun lastIndexedMixedStatuses() {
         val pairId = createPairWithoutQueuedAttempt()
         val olderSuccess = Instant.parse("2026-08-31T01:00:00Z")
@@ -444,7 +477,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
     @Test
     fun entityErrorsReturnStoredFailureContext() {
         val pairId = createPairWithoutQueuedAttempt()
-        val attempt = attempts.save(IngestionAttemptEntity(ccPairId = pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS))
+        val attempt = attempts.save(
+            IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1, status = AttemptStatus.COMPLETED_WITH_ERRORS),
+        )
         val missedStart = Instant.parse("2026-08-01T00:00:00Z")
         val missedEnd = Instant.parse("2026-08-02T00:00:00Z")
         errors.save(
@@ -708,7 +743,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
 
     private fun saveAttempt(pairId: Long, status: AttemptStatus, started: Instant) {
         val attempt = attempts.save(
-            IngestionAttemptEntity(ccPairId = pairId, status = status, timeStarted = started),
+            IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1, status = status, timeStarted = started),
         )
         jdbc.update(
             "UPDATE ingestion_attempts SET time_started = ?, time_updated = ? WHERE id = ?",
@@ -718,10 +753,11 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         )
     }
 
-    private fun saveIndexedDocument(pairId: Long, sourceDocumentId: String) {
+    private fun saveIndexedDocument(pairId: Long, sourceDocumentId: String, searchSettingsId: Long = 1) {
         documents.save(
             IndexedDocumentEntity(
                 ccPairId = pairId,
+                searchSettingsId = searchSettingsId,
                 sourceDocumentId = sourceDocumentId,
                 title = sourceDocumentId,
                 contentHash = sourceDocumentId,

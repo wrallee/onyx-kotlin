@@ -6,9 +6,11 @@ import com.onyx.kotlin.connector.ConnectorCredentialPairEntity
 import com.onyx.kotlin.connector.ConnectorCredentialPairRepository
 import com.onyx.kotlin.connector.ConnectorRepository
 import com.onyx.kotlin.connector.PairStatus
+import com.onyx.kotlin.indexing.IndexSettingsService
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
 
 @Service
 class IngestionCommandService(
@@ -16,6 +18,7 @@ class IngestionCommandService(
     private val pairs: ConnectorCredentialPairRepository,
     private val attempts: IngestionAttemptRepository,
     private val jobs: IngestionJobRepository,
+    private val indexSettings: IndexSettingsService,
 ) {
     @Transactional
     fun enqueue(request: RunConnectorRequest): StatusResponse {
@@ -42,19 +45,41 @@ class IngestionCommandService(
 
     @Transactional
     fun enqueuePair(pairId: Long, fromBeginning: Boolean, pruneOnly: Boolean = false): Long {
+        return enqueuePair(pairId, indexSettings.currentRuntime().settingsId, fromBeginning, pruneOnly)
+    }
+
+    @Transactional
+    fun enqueuePair(
+        pairId: Long,
+        searchSettingsId: Long,
+        fromBeginning: Boolean,
+        pruneOnly: Boolean = false,
+        pollRangeStart: Instant? = null,
+        pollRangeEnd: Instant? = null,
+    ): Long {
         lockPairForMutation(pairId)
-        jobs.findFirstByCcPairIdAndStateInOrderById(pairId, listOf(JobState.QUEUED, JobState.RUNNING))
+        jobs.findFirstByCcPairIdAndSearchSettingsIdAndStateInOrderById(
+            pairId, searchSettingsId, listOf(JobState.QUEUED, JobState.RUNNING),
+        )
             ?.let { return id(it) }
         val attempt = attempts.save(
             IngestionAttemptEntity(
                 ccPairId = pairId,
+                searchSettingsId = searchSettingsId,
                 fromBeginning = fromBeginning,
                 pruneOnly = pruneOnly,
+                pollRangeStart = pollRangeStart,
+                pollRangeEnd = pollRangeEnd,
             ),
         )
         return id(
             jobs.save(
-                IngestionJobEntity(attemptId = id(attempt), ccPairId = pairId, state = JobState.QUEUED),
+                IngestionJobEntity(
+                    attemptId = id(attempt),
+                    ccPairId = pairId,
+                    searchSettingsId = searchSettingsId,
+                    state = JobState.QUEUED,
+                ),
             ),
         )
     }

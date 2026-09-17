@@ -7,9 +7,7 @@ import com.onyx.kotlin.documentset.DocumentSetSyncClaimLockRepository
 import com.onyx.kotlin.documentset.DocumentSetSyncOutboxRepository
 import com.onyx.kotlin.documentset.DocumentSetSyncStatus
 import com.onyx.kotlin.documentset.DocumentSetRepository
-import com.onyx.kotlin.opensearch.OpenSearchIndexer
-import com.onyx.kotlin.ingestion.IndexedDocumentRepository
-import org.springframework.data.domain.PageRequest
+import com.onyx.kotlin.indexing.IndexSettingsService
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
@@ -79,9 +77,8 @@ class DocumentSetSyncClaimService(
 class DocumentSetSyncWorker(
     private val properties: OnyxProperties,
     private val claims: DocumentSetSyncClaimService,
-    private val documents: IndexedDocumentRepository,
-    private val documentSets: DocumentSetRepository,
-    private val indexer: OpenSearchIndexer,
+    private val settings: IndexSettingsService,
+    private val indexSync: DocumentSetIndexSyncService,
 ) {
     @Scheduled(fixedDelayString = "\${onyx.worker.poll-delay-ms:5000}")
     fun work() {
@@ -97,7 +94,7 @@ class DocumentSetSyncWorker(
         try {
             claim.ccPairIds.forEach { pairId ->
                 if (!claims.renew(claim.id, claim.token)) return true
-                if (!syncPair(claim, pairId)) return true
+                if (!indexSync.syncPair(pairId, settings.currentRuntime()) { claims.renew(claim.id, claim.token) }) return true
             }
             claims.complete(claim.id, claim.token)
         } catch (error: Exception) {
@@ -106,24 +103,4 @@ class DocumentSetSyncWorker(
         return true
     }
 
-    private fun syncPair(claim: DocumentSetSyncClaim, pairId: Long): Boolean {
-        val names = documentSets.findNamesByCcPairId(pairId)
-        var afterSourceDocumentId = ""
-        while (true) {
-            val page = documents.findAllByCcPairIdAndSourceDocumentIdGreaterThanOrderBySourceDocumentId(
-                pairId,
-                afterSourceDocumentId,
-                PageRequest.of(0, DOCUMENT_PAGE_SIZE),
-            )
-            if (page.isEmpty()) return true
-            if (!claims.renew(claim.id, claim.token)) return false
-            indexer.updateDocumentSets(pairId, page.map { it.sourceDocumentId }.toSet(), names)
-            if (page.size < DOCUMENT_PAGE_SIZE) return true
-            afterSourceDocumentId = page.last().sourceDocumentId
-        }
-    }
-
-    private companion object {
-        const val DOCUMENT_PAGE_SIZE = 500
-    }
 }

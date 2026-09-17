@@ -1,6 +1,5 @@
 package com.onyx.kotlin.opensearch
 
-import com.onyx.kotlin.config.OnyxProperties
 import com.onyx.kotlin.config.SearchProperties
 import com.onyx.kotlin.connector.ConnectorSource
 import com.onyx.kotlin.search.SearchCandidate
@@ -30,7 +29,7 @@ import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
 import java.util.Base64
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 
 @Service
 class OpenSearchIndexer(
@@ -66,7 +65,6 @@ class OpenSearchIndexer(
         openSearchClient: OpenSearchClient,
         objectMapper: ObjectMapper,
         externalWrites: PairExternalWriteFence,
-        onyxProperties: OnyxProperties,
         searchProperties: SearchProperties,
         pipelineRegistry: HybridNormalizationPipelineRegistry,
     ) : this(
@@ -74,14 +72,15 @@ class OpenSearchIndexer(
         openSearchClient,
         objectMapper,
         externalWrites,
-        onyxProperties.modelServer.embeddingDimension,
+        768,
         searchProperties,
         pipelineRegistry,
     )
 
-    private val indexReady = AtomicBoolean(false)
+    private val indexReady = ConcurrentHashMap.newKeySet<String>()
 
     fun keywordSearch(
+        target: OpenSearchIndexTarget,
         query: String,
         documentSets: List<String>,
         count: Int,
@@ -91,11 +90,11 @@ class OpenSearchIndexer(
     ): List<SearchCandidate> {
         require(query.isNotBlank()) { "query must not be blank" }
         require(count > 0) { "count must be positive" }
-        ensureIndex()
+        ensureIndex(target)
 
         val filter = searchFilter(documentSets, sourceTypes, updatedAfter, metadataFilters)
         val request = OpenSearchSearchRequest.Builder()
-            .index(properties.indexName)
+            .index(target.name)
             .size(count)
             .query(Query.of { q ->
                 q.bool { b ->
@@ -120,6 +119,7 @@ class OpenSearchIndexer(
     }
 
     fun vectorSearch(
+        target: OpenSearchIndexTarget,
         queryEmbedding: List<Double>,
         documentSets: List<String>,
         count: Int,
@@ -127,11 +127,11 @@ class OpenSearchIndexer(
         updatedAfter: Instant? = null,
         metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
     ): List<SearchCandidate> {
-        require(queryEmbedding.size == modelServerDimension) {
-            "query embedding dimension must be $modelServerDimension"
+        require(queryEmbedding.size == target.dimension) {
+            "query embedding dimension must be ${target.dimension}"
         }
         require(count > 0) { "count must be positive" }
-        ensureIndex()
+        ensureIndex(target)
         val candidateCount = Math.multiplyExact(count, searchProperties.hybridCandidateMultiplier)
 
         val knn = KnnQuery.Builder()
@@ -141,7 +141,7 @@ class OpenSearchIndexer(
         searchFilter(documentSets, sourceTypes, updatedAfter, metadataFilters)?.let { knn.filter(it) }
 
         val request = OpenSearchSearchRequest.Builder()
-            .index(properties.indexName)
+            .index(target.name)
             .size(count)
             .query(Query.of { q -> q.knn(knn.build()) })
             .collapse { collapse -> collapse.field(SOURCE_CHUNK_ID_FIELD) }
@@ -154,6 +154,7 @@ class OpenSearchIndexer(
     }
 
     fun hybridSearch(
+        target: OpenSearchIndexTarget,
         query: String,
         queryEmbedding: List<Double>,
         documentSets: List<String>,
@@ -163,11 +164,11 @@ class OpenSearchIndexer(
         metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
     ): List<SearchCandidate> {
         require(query.isNotBlank()) { "query must not be blank" }
-        require(queryEmbedding.size == modelServerDimension) {
-            "query embedding dimension must be $modelServerDimension"
+        require(queryEmbedding.size == target.dimension) {
+            "query embedding dimension must be ${target.dimension}"
         }
         require(limit > 0) { "limit must be positive" }
-        ensureIndex()
+        ensureIndex(target)
 
         val registry = checkNotNull(pipelineRegistry) {
             "Hybrid normalization pipeline registry is not configured"
@@ -199,7 +200,7 @@ class OpenSearchIndexer(
             }
         }
         val request = OpenSearchSearchRequest.Builder()
-            .index(properties.indexName)
+            .index(target.name)
             .size(limit)
             .searchPipeline(registry.selectedPipelineId())
             .query(hybridQuery)
@@ -211,6 +212,34 @@ class OpenSearchIndexer(
             source.toSearchCandidate(hit.id() ?: "", hit.score() ?: 0.0, mapper)
         }
     }
+
+    fun keywordSearch(
+        query: String,
+        documentSets: List<String>,
+        count: Int,
+        sourceTypes: List<String> = emptyList(),
+        updatedAfter: Instant? = null,
+        metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
+    ) = keywordSearch(defaultTarget(), query, documentSets, count, sourceTypes, updatedAfter, metadataFilters)
+
+    fun vectorSearch(
+        queryEmbedding: List<Double>,
+        documentSets: List<String>,
+        count: Int,
+        sourceTypes: List<String> = emptyList(),
+        updatedAfter: Instant? = null,
+        metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
+    ) = vectorSearch(defaultTarget(), queryEmbedding, documentSets, count, sourceTypes, updatedAfter, metadataFilters)
+
+    fun hybridSearch(
+        query: String,
+        queryEmbedding: List<Double>,
+        documentSets: List<String>,
+        limit: Int,
+        sourceTypes: List<String> = emptyList(),
+        updatedAfter: Instant? = null,
+        metadataFilters: SearchMetadataFilters = SearchMetadataFilters(),
+    ) = hybridSearch(defaultTarget(), query, queryEmbedding, documentSets, limit, sourceTypes, updatedAfter, metadataFilters)
 
     private fun searchFilter(
         documentSets: List<String>,
@@ -247,20 +276,35 @@ class OpenSearchIndexer(
             ?.let { Query.of { q -> q.bool { b -> b.filter(it) } } }
     }
 
-    fun chunkById(id: String): SearchCandidate? {
+    fun chunkById(id: String): SearchCandidate? = chunkById(defaultTarget(), id)
+
+    fun chunkById(target: OpenSearchIndexTarget, id: String): SearchCandidate? {
         require(id.isNotBlank()) { "id must not be blank" }
-        ensureIndex()
+        ensureIndex(target)
         val response = client.get(
-            { get -> get.index(properties.indexName).id(id) },
+            { get -> get.index(target.name).id(id) },
             OpenSearchChunkDocument::class.java,
         )
         val source = response.source() ?: return null
         return source.toSearchCandidate(response.id(), 0.0, mapper)
     }
 
-    fun chunksInRange(ccPairId: Long, sourceDocumentId: String, minChunkId: Int, maxChunkId: Int): List<SearchCandidate> {
+    fun chunksInRange(
+        ccPairId: Long,
+        sourceDocumentId: String,
+        minChunkId: Int,
+        maxChunkId: Int,
+    ): List<SearchCandidate> = chunksInRange(defaultTarget(), ccPairId, sourceDocumentId, minChunkId, maxChunkId)
+
+    fun chunksInRange(
+        target: OpenSearchIndexTarget,
+        ccPairId: Long,
+        sourceDocumentId: String,
+        minChunkId: Int,
+        maxChunkId: Int,
+    ): List<SearchCandidate> {
         require(minChunkId <= maxChunkId) { "minChunkId must be <= maxChunkId" }
-        ensureIndex()
+        ensureIndex(target)
 
         val query = Query.of { q ->
             q.bool { b ->
@@ -275,7 +319,7 @@ class OpenSearchIndexer(
         }
 
         val searchRequest = OpenSearchSearchRequest.Builder()
-            .index(properties.indexName)
+            .index(target.name)
             .size(maxChunkId - minChunkId + 1)
             .sort { s -> s.field { f -> f.field("chunk_id").order(SortOrder.Asc) } }
             .query(query)
@@ -289,15 +333,23 @@ class OpenSearchIndexer(
     }
 
     fun deletePair(pairId: Long) {
+        deletePair(defaultTarget(), pairId)
+    }
+
+    fun deletePair(target: OpenSearchIndexTarget, pairId: Long) {
         val query = Query.of { q ->
             q.term { t ->
                 t.field("cc_pair_id").value(FieldValue.of(pairId))
             }
         }
-        deleteByQuery(query, "pair deletion")
+        deleteByQuery(target, query, "pair deletion")
     }
 
     fun deleteDocuments(pairId: Long, sourceDocumentIds: Set<String>) {
+        deleteDocuments(defaultTarget(), pairId, sourceDocumentIds)
+    }
+
+    fun deleteDocuments(target: OpenSearchIndexTarget, pairId: Long, sourceDocumentIds: Set<String>) {
         val query = Query.of { q ->
             q.bool { b ->
                 b.filter(
@@ -308,10 +360,18 @@ class OpenSearchIndexer(
                 )
             }
         }
-        deleteByQuery(query, "document deletion")
+        deleteByQuery(target, query, "document deletion")
     }
 
-    fun deleteStaleChunks(pairId: Long, sourceDocumentId: String, newChunkCount: Int) {
+    fun deleteStaleChunks(pairId: Long, sourceDocumentId: String, newChunkCount: Int) =
+        deleteStaleChunks(defaultTarget(), pairId, sourceDocumentId, newChunkCount)
+
+    fun deleteStaleChunks(
+        target: OpenSearchIndexTarget,
+        pairId: Long,
+        sourceDocumentId: String,
+        newChunkCount: Int,
+    ) {
         val query = Query.of { q ->
             q.bool { b ->
                 b.filter(
@@ -323,10 +383,19 @@ class OpenSearchIndexer(
                 )
             }
         }
-        deleteByQuery(query, "stale chunk deletion")
+        deleteByQuery(target, query, "stale chunk deletion")
     }
 
     fun updateDocumentSets(pairId: Long, sourceDocumentIds: Set<String>, documentSetNames: List<String>) {
+        updateDocumentSets(defaultTarget(), pairId, sourceDocumentIds, documentSetNames)
+    }
+
+    fun updateDocumentSets(
+        target: OpenSearchIndexTarget,
+        pairId: Long,
+        sourceDocumentIds: Set<String>,
+        documentSetNames: List<String>,
+    ) {
         if (sourceDocumentIds.isEmpty()) return
         val query = Query.of { q ->
             q.bool { b ->
@@ -339,10 +408,10 @@ class OpenSearchIndexer(
             }
         }
 
-        ensureIndex()
+        ensureIndex(target)
         val response = try {
             client.updateByQuery { u ->
-                u.index(properties.indexName)
+                u.index(target.name)
                     .refresh(Refresh.True)
                     .conflicts(Conflicts.Proceed)
                     .script { s ->
@@ -378,7 +447,7 @@ class OpenSearchIndexer(
 
         val matchedSourceDocumentIds = client.search(
             OpenSearchSearchRequest.Builder()
-                .index(properties.indexName)
+                .index(target.name)
                 .size(sourceDocumentIds.size)
                 .query(query)
                 .collapse { it.field(EXACT_DOCUMENT_ID_FIELD) }
@@ -391,11 +460,14 @@ class OpenSearchIndexer(
         }
     }
 
-    private fun deleteByQuery(query: Query, operation: String) {
-        ensureIndex()
+    private fun deleteByQuery(query: Query, operation: String) =
+        deleteByQuery(defaultTarget(), query, operation)
+
+    private fun deleteByQuery(target: OpenSearchIndexTarget, query: Query, operation: String) {
+        ensureIndex(target)
         val response = try {
             client.deleteByQuery { d ->
-                d.index(properties.indexName)
+                d.index(target.name)
                     .query(query)
                     .refresh(Refresh.True)
             }
@@ -433,7 +505,44 @@ class OpenSearchIndexer(
         secondaryOwners: List<String> = emptyList(),
         sourceType: ConnectorSource? = null,
         indexedMetadata: IndexedMetadata = IndexedMetadata(),
+    ) = upsert(
+        defaultTarget(),
+        pairId,
+        sourceDocumentId,
+        chunkId,
+        title,
+        content,
+        link,
+        metadata,
+        embedding,
+        documentSets,
+        updatedAt,
+        primaryOwners,
+        secondaryOwners,
+        sourceType,
+        indexedMetadata,
+    )
+
+    fun upsert(
+        target: OpenSearchIndexTarget,
+        pairId: Long,
+        sourceDocumentId: String,
+        chunkId: Int,
+        title: String,
+        content: String,
+        link: String?,
+        metadata: Map<String, Any?>,
+        embedding: List<Double>,
+        documentSets: List<String> = emptyList(),
+        updatedAt: Instant? = null,
+        primaryOwners: List<String> = emptyList(),
+        secondaryOwners: List<String> = emptyList(),
+        sourceType: ConnectorSource? = null,
+        indexedMetadata: IndexedMetadata = IndexedMetadata(),
     ) {
+        require(embedding.size == target.dimension) {
+            "Embedding dimension ${embedding.size} does not match index ${target.name} dimension ${target.dimension}"
+        }
         val documentId = Base64.getUrlEncoder().withoutPadding().encodeToString(
             (pairId.toString() + ":" + sourceDocumentId + ":" + chunkId).toByteArray(StandardCharsets.UTF_8),
         )
@@ -464,10 +573,10 @@ class OpenSearchIndexer(
             isPublic = true,
         )
 
-        ensureIndex()
+        ensureIndex(target)
         try {
             client.index<OpenSearchChunkDocument> { i ->
-                i.index(properties.indexName)
+                i.index(target.name)
                     .id(documentId)
                     .document(doc)
                     .refresh(Refresh.True)
@@ -487,24 +596,53 @@ class OpenSearchIndexer(
         client.cluster().health().status().jsonValue()
     }.getOrDefault("red")
 
+    fun resetIndex(target: OpenSearchIndexTarget) {
+        deleteIndex(target)
+        ensureIndex(target)
+    }
+
+    fun deleteIndex(target: OpenSearchIndexTarget) {
+        externalWrites.withOpenSearchIndex(target.name) {
+            try {
+                val response = client.generic().execute(
+                    Requests.builder().method("DELETE").endpoint("/${target.name}").build(),
+                )
+                response.use { res ->
+                    if (res.status !in 200..299 && res.status != 404) {
+                        throw openSearchWriteError("index deletion", res.status, res.body.map { it.bodyAsString() }.orElse(""))
+                    }
+                }
+            } catch (e: ResponseException) {
+                if (e.status() != 404) throw openSearchWriteError("index deletion", e.status(), e.message ?: "")
+            } catch (e: OpenSearchException) {
+                if (e.status() != 404) throw openSearchWriteError("index deletion", e.status(), e.message ?: "")
+            }
+            indexReady -= target.name
+        }
+    }
+
     private fun openSearchWriteError(operation: String, status: Int, body: String) =
         IllegalStateException("OpenSearch $operation failed with status $status: $body")
 
-    private fun ensureIndex() {
-        if (indexReady.get()) return
+    private fun ensureIndex() = ensureIndex(defaultTarget())
+
+    private fun ensureIndex(target: OpenSearchIndexTarget) {
+        if (target.name in indexReady) return
         synchronized(indexReady) {
-            if (indexReady.get()) return
-            externalWrites.withOpenSearchIndex(properties.indexName) {
-                val exists = indexExists(properties.indexName)
+            if (target.name in indexReady) return
+            externalWrites.withOpenSearchIndex(target.name) {
+                val exists = indexExists(target.name)
                 if (!exists) {
-                    putJson("/${properties.indexName}", indexDefinition(), "index creation")
+                    putJson("/${target.name}", indexDefinition(target.dimension), "index creation")
                 } else {
-                    putJson("/${properties.indexName}/_mapping", documentMapping(), "mapping update")
+                    putJson("/${target.name}/_mapping", documentMapping(target.dimension), "mapping update")
                 }
             }
-            indexReady.set(true)
+            indexReady += target.name
         }
     }
+
+    private fun defaultTarget() = OpenSearchIndexTarget(properties.indexName, modelServerDimension)
 
     private fun indexExists(index: String): Boolean {
         return try {
@@ -549,9 +687,9 @@ class OpenSearchIndexer(
         const val EMBEDDING_FIELD = "embedding"
     }
 
-    private fun vectorFieldDefinition(): Map<String, Any> = mapOf(
+    private fun vectorFieldDefinition(dimension: Int): Map<String, Any> = mapOf(
         "type" to "knn_vector",
-        "dimension" to modelServerDimension,
+        "dimension" to dimension,
         "method" to mapOf(
             "name" to "hnsw",
             "space_type" to "cosinesimil",
@@ -559,12 +697,12 @@ class OpenSearchIndexer(
         ),
     )
 
-    private fun indexDefinition(): Map<String, Any> = mapOf(
+    private fun indexDefinition(dimension: Int): Map<String, Any> = mapOf(
         "settings" to mapOf("index" to mapOf("knn" to true)),
-        "mappings" to documentMapping(),
+        "mappings" to documentMapping(dimension),
     )
 
-    private fun documentMapping(): Map<String, Any> = mapOf(
+    private fun documentMapping(dimension: Int): Map<String, Any> = mapOf(
         "dynamic" to "strict",
         "properties" to mapOf(
             "cc_pair_id" to mapOf("type" to "long"),
@@ -592,7 +730,7 @@ class OpenSearchIndexer(
                 "store" to false,
             ),
             "metadata" to mapOf("type" to "object", "enabled" to false),
-            EMBEDDING_FIELD to vectorFieldDefinition(),
+            EMBEDDING_FIELD to vectorFieldDefinition(dimension),
             "source_type" to mapOf("type" to "keyword"),
             "project_key" to mapOf("type" to "keyword"),
             "repository" to mapOf("type" to "keyword"),

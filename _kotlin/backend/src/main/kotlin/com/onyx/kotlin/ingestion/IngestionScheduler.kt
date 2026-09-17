@@ -6,6 +6,8 @@ import com.onyx.kotlin.connector.ConnectorRepository
 import com.onyx.kotlin.ingestion.IngestionAttemptRepository
 import com.onyx.kotlin.ingestion.JobState
 import com.onyx.kotlin.connector.PairStatus
+import com.onyx.kotlin.indexing.IndexSettingsService
+import com.onyx.kotlin.indexing.ReindexCoordinator
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -18,6 +20,8 @@ class IngestionScheduler(
     private val connectors: ConnectorRepository,
     private val attempts: IngestionAttemptRepository,
     private val commands: IngestionCommandService,
+    private val indexSettings: IndexSettingsService,
+    private val reindex: ReindexCoordinator,
 ) {
     @Scheduled(fixedDelayString = "\${onyx.scheduler.poll-delay-ms:15000}")
     @Transactional
@@ -27,14 +31,18 @@ class IngestionScheduler(
 
     @Transactional
     fun scheduleDue(now: Instant) {
+        val current = indexSettings.currentRuntime()
+        if (reindex.currentSchedulingBlocked()) return
         pairs.findSchedulable(
             listOf(PairStatus.SCHEDULED, PairStatus.INITIAL_INDEXING, PairStatus.ACTIVE),
+            current.settingsId,
             listOf(JobState.QUEUED, JobState.RUNNING),
         ).forEach { pair ->
             // ponytail: batch this projection if scheduler query volume becomes measurable.
             val pairId = requireNotNull(pair.id)
             val connector = connectors.findById(pair.connectorId).orElseThrow()
-            val lastAttempt = attempts.findFirstByCcPairIdAndPruneOnlyFalseOrderByTimeUpdatedDescIdDesc(pairId)
+            val lastAttempt = attempts.findAllByCcPairIdAndSearchSettingsIdOrderByIdDesc(pairId, current.settingsId)
+                .firstOrNull { !it.pruneOnly }
             val lastAttemptAt = lastAttempt?.timeUpdated ?: lastAttempt?.timeStarted ?: now
             val pruneDue = connector.pruneFreq?.let { frequency ->
                 pair.lastPrunedAt?.plusSeconds(frequency)?.isAfter(now) != true

@@ -4,6 +4,7 @@ import com.onyx.kotlin.config.OnyxProperties
 import com.onyx.kotlin.connector.ConnectorCredentialPairEntity
 import com.onyx.kotlin.connector.ConnectorCredentialPairRepository
 import com.onyx.kotlin.connector.PairStatus
+import com.onyx.kotlin.indexing.IndexSettingsService
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -18,6 +19,7 @@ class JobClaimService(
     private val attempts: IngestionAttemptRepository,
     private val errors: IngestionErrorRepository,
     private val properties: OnyxProperties,
+    private val indexSettings: IndexSettingsService,
 ) {
     @Transactional
     fun claimNext(now: Instant = Instant.now()): IngestionClaim? = jobs
@@ -30,14 +32,11 @@ class JobClaimService(
     private fun claim(jobId: Long, now: Instant): IngestionClaim? {
         val job = jobs.findById(jobId).orElse(null) ?: return null
         val pair = pairs.lockById(job.ccPairId) ?: return null
-        if (pair.status == PairStatus.DELETING || pair.ingestionLeaseExpiresAt?.isAfter(now) == true) return null
+        if (pair.status == PairStatus.DELETING) return null
         val token = UUID.randomUUID()
         val leaseExpiresAt = now.plus(INGESTION_LEASE)
         if (jobs.claim(jobId, now, "spring-worker", token, leaseExpiresAt) != 1) return null
-        pair.ingestionClaimToken = token
-        pair.ingestionLeaseExpiresAt = leaseExpiresAt
-        pairs.saveAndFlush(pair)
-        return IngestionClaim(jobId, job.ccPairId, job.attemptId, token)
+        return IngestionClaim(jobId, job.ccPairId, job.searchSettingsId, job.attemptId, token)
     }
 
     @Transactional
@@ -47,7 +46,7 @@ class JobClaimService(
         attempt.status = AttemptStatus.IN_PROGRESS
         attempt.timeStarted = attempt.timeStarted ?: now
         attempts.save(attempt)
-        if (ownership.pair.status == PairStatus.SCHEDULED) {
+        if (isCurrent(claim) && ownership.pair.status == PairStatus.SCHEDULED) {
             ownership.pair.status = PairStatus.INITIAL_INDEXING
             pairs.save(ownership.pair)
         }
@@ -59,9 +58,7 @@ class JobClaimService(
         val ownership = ownership(claim) ?: return false
         val leaseExpiresAt = now.plus(INGESTION_LEASE)
         ownership.job.leaseExpiresAt = leaseExpiresAt
-        ownership.pair.ingestionLeaseExpiresAt = leaseExpiresAt
         jobs.save(ownership.job)
-        pairs.save(ownership.pair)
         return true
     }
 
@@ -81,11 +78,12 @@ class JobClaimService(
         attempt.totalDocsIndexed = totalDocuments
         attempt.docsRemovedFromIndex = removedDocuments
         attempts.save(attempt)
-        ownership.pair.inRepeatedErrorState = false
-        ownership.pair.status = PairStatus.ACTIVE
-        if (updateLastPrunedAt) ownership.pair.lastPrunedAt = Instant.now()
-        releasePair(ownership.pair)
-        pairs.save(ownership.pair)
+        if (isCurrent(claim)) {
+            ownership.pair.inRepeatedErrorState = false
+            ownership.pair.status = PairStatus.ACTIVE
+            if (updateLastPrunedAt) ownership.pair.lastPrunedAt = Instant.now()
+            pairs.save(ownership.pair)
+        }
         ownership.job.state = JobState.SUCCEEDED
         ownership.job.activeMarker = null
         releaseJob(ownership.job)
@@ -99,9 +97,7 @@ class JobClaimService(
         val attempt = attempts.findById(claim.attemptId).orElse(null) ?: return false
         attempt.status = AttemptStatus.CANCELED
         attempts.save(attempt)
-        releasePair(ownership.pair)
-        pairs.save(ownership.pair)
-        ownership.job.state = JobState.SUCCEEDED
+        ownership.job.state = JobState.CANCELED
         ownership.job.activeMarker = null
         releaseJob(ownership.job)
         jobs.save(ownership.job)
@@ -129,16 +125,17 @@ class JobClaimService(
                 errorType = error::class.simpleName,
             ),
         )
-        val repeated = isRepeatedError(
-            refreshFreq,
-            attempts.findAllByCcPairIdOrderByIdDesc(claim.pairId),
-        )
-        ownership.pair.inRepeatedErrorState = repeated
-        if (repeated && properties.multiTenant) {
-            ownership.pair.status = PairStatus.PAUSED
+        if (isCurrent(claim)) {
+            val repeated = isRepeatedError(
+                refreshFreq,
+                attempts.findAllByCcPairIdAndSearchSettingsIdOrderByIdDesc(claim.pairId, claim.searchSettingsId),
+            )
+            ownership.pair.inRepeatedErrorState = repeated
+            if (repeated && properties.multiTenant) {
+                ownership.pair.status = PairStatus.PAUSED
+            }
+            pairs.save(ownership.pair)
         }
-        releasePair(ownership.pair)
-        pairs.save(ownership.pair)
         ownership.job.state = JobState.FAILED
         ownership.job.activeMarker = null
         ownership.job.lastError = attempt.errorMessage
@@ -151,7 +148,7 @@ class JobClaimService(
         val job = jobs.lockById(claim.jobId) ?: return null
         if (job.state != JobState.RUNNING || job.claimToken != claim.token || job.ccPairId != claim.pairId) return null
         val pair = pairs.lockById(claim.pairId) ?: return null
-        if (pair.status == PairStatus.DELETING || pair.ingestionClaimToken != claim.token) return null
+        if (pair.status == PairStatus.DELETING) return null
         return IngestionOwnership(job, pair)
     }
 
@@ -160,10 +157,8 @@ class JobClaimService(
         job.leaseExpiresAt = null
     }
 
-    private fun releasePair(pair: com.onyx.kotlin.connector.ConnectorCredentialPairEntity) {
-        pair.ingestionClaimToken = null
-        pair.ingestionLeaseExpiresAt = null
-    }
+    private fun isCurrent(claim: IngestionClaim): Boolean =
+        claim.searchSettingsId == indexSettings.currentRuntime().settingsId
 
     private companion object {
         const val CLAIM_CANDIDATE_LIMIT = 10
@@ -173,6 +168,7 @@ class JobClaimService(
 data class IngestionClaim(
     val jobId: Long,
     val pairId: Long,
+    val searchSettingsId: Long,
     val attemptId: Long,
     val token: UUID,
 )

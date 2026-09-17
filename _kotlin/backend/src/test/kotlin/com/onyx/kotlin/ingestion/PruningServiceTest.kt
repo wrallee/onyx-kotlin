@@ -1,6 +1,7 @@
 package com.onyx.kotlin.ingestion
 
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
+import com.onyx.kotlin.opensearch.OpenSearchIndexTarget
 
 import tools.jackson.databind.ObjectMapper
 import com.onyx.kotlin.connector.ConnectorCredentialPairEntity
@@ -29,6 +30,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 
 class PruningServiceTest : H2IntegrationTest() {
+    private val target = OpenSearchIndexTarget("target-index", 1)
     @Autowired private lateinit var pruning: PruningService
     @Autowired private lateinit var mapper: ObjectMapper
     @Autowired private lateinit var cipher: CredentialCipher
@@ -46,6 +48,7 @@ class PruningServiceTest : H2IntegrationTest() {
             "ingestion_errors", "ingestion_jobs", "ingestion_attempts", "ingestion_checkpoints",
             "indexed_documents", "connector_credential_pairs", "connectors", "credentials",
         )
+        jdbc.update("DELETE FROM search_settings WHERE status <> 'PRESENT'")
     }
 
     @Test
@@ -56,7 +59,7 @@ class PruningServiceTest : H2IntegrationTest() {
 
         assertThat(removed).isEqualTo(1)
         assertThat(documents.findAll().map { it.sourceDocumentId }).containsExactly("seen")
-        verify(indexer).deleteDocuments(pairId, setOf("removed"))
+        verify(indexer).deleteDocuments(target, pairId, setOf("removed"))
     }
 
     @Test
@@ -79,13 +82,35 @@ class PruningServiceTest : H2IntegrationTest() {
     @Test
     fun leavesDatabaseRowsWhenOpenSearchDeletionFails() {
         val pairId = createPairWithDocuments("removed")
-        doThrow(IllegalStateException("OpenSearch failed")).`when`(indexer).deleteDocuments(pairId, setOf("removed"))
+        doThrow(IllegalStateException("OpenSearch failed")).`when`(indexer)
+            .deleteDocuments(target, pairId, setOf("removed"))
 
         assertThrows<IllegalStateException> {
             prune(pairId, emptySet(), emptySet(), fromBeginning = true, completeEnumeration = true)
         }
 
         assertThat(documents.findAll().map { it.sourceDocumentId }).containsExactly("removed")
+    }
+
+    @Test
+    fun `pruning one search setting keeps another setting documents`() {
+        val pairId = createPairWithDocuments("removed")
+        val futureId = createFutureSetting()
+        documents.save(
+            IndexedDocumentEntity(
+                ccPairId = pairId,
+                searchSettingsId = futureId,
+                sourceDocumentId = "removed",
+                title = "removed",
+                contentHash = "removed",
+                metadata = mapper.createObjectNode(),
+            ),
+        )
+
+        prune(pairId, emptySet(), emptySet(), fromBeginning = true, completeEnumeration = true)
+
+        assertThat(documents.countByCcPairIdAndSearchSettingsId(pairId, 1)).isZero()
+        assertThat(documents.countByCcPairIdAndSearchSettingsId(pairId, futureId)).isEqualTo(1)
     }
 
     @Test
@@ -114,7 +139,7 @@ class PruningServiceTest : H2IntegrationTest() {
         assertThat(removed).isEqualTo(1001)
         val pageSizes = mockingDetails(indexer).invocations
             .filter { it.method.name == "deleteDocuments" }
-            .map { (it.arguments[1] as Set<*>).size }
+            .map { (it.arguments[2] as Set<*>).size }
         assertThat(pageSizes).containsExactly(500, 500, 1)
         assertThat(documents.countByCcPairId(pairId)).isZero()
     }
@@ -144,6 +169,7 @@ class PruningServiceTest : H2IntegrationTest() {
             documents.save(
                 IndexedDocumentEntity(
                     ccPairId = requireNotNull(pair.id),
+                    searchSettingsId = 1,
                     sourceDocumentId = sourceDocumentId,
                     title = sourceDocumentId,
                     contentHash = sourceDocumentId,
@@ -154,6 +180,18 @@ class PruningServiceTest : H2IntegrationTest() {
         return requireNotNull(pair.id)
     }
 
+    private fun createFutureSetting(): Long {
+        jdbc.update(
+            """
+                INSERT INTO search_settings(model_name, index_name, status, singleton_marker)
+                VALUES ('microsoft/harrier-oss-v1-0.6b', 'target-index', 'FUTURE', 1)
+            """.trimIndent(),
+        )
+        return requireNotNull(
+            jdbc.queryForObject("SELECT id FROM search_settings WHERE status = 'FUTURE'", Long::class.java),
+        )
+    }
+
     private fun prune(
         pairId: Long,
         seenDocumentIds: Set<String>,
@@ -161,7 +199,9 @@ class PruningServiceTest : H2IntegrationTest() {
         fromBeginning: Boolean,
         completeEnumeration: Boolean,
     ): Int {
-        val attemptId = requireNotNull(attempts.save(IngestionAttemptEntity(ccPairId = pairId)).id)
+        val attemptId = requireNotNull(
+            attempts.save(IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1)).id,
+        )
         (seenDocumentIds + failedDocumentIds).forEach { sourceDocumentId ->
             jdbc.update(
                 "INSERT INTO ingestion_enumerated_documents(attempt_id, source_document_id) VALUES (?, ?)",
@@ -169,6 +209,6 @@ class PruningServiceTest : H2IntegrationTest() {
                 sourceDocumentId,
             )
         }
-        return pruning.prune(pairId, attemptId, fromBeginning, completeEnumeration)
+        return pruning.prune(target, pairId, 1, attemptId, fromBeginning, completeEnumeration)
     }
 }

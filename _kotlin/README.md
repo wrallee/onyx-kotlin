@@ -38,11 +38,14 @@ See `model-server/MODELS.md` for revisions and SHA-256 values.
 
 The Kotlin backend sends every chunking and embedding request to the Python
 model-server. Granite uses OpenVINO INT8. Harrier loads from a user mount through
-SentenceTransformers and PyTorch. Explicit OpenAI-compatible requests use only
-the configured endpoint and do not load a local embedding model. The current
-live search and ingestion paths use the environment-configured local model. The
-current search does not call a reranker. The optional GTE and BGE artifacts
-remain available for evaluation.
+SentenceTransformers and PyTorch. Granite and Harrier are the supported embedding
+models. The current search does not call a reranker. The optional GTE and BGE
+artifacts remain available for evaluation.
+
+PostgreSQL stores the active model in `search_settings`; Granite is the initial
+model. Search and ingestion resolve the `PRESENT` setting for every operation.
+`Full Reindex` rebuilds an inactive index. `Sync & Switch` reuses a compatible
+past index. The final incremental range ends at one persisted database timestamp.
 
 ## Run
 

@@ -86,7 +86,7 @@ export const SWR_KEYS = {
   secondarySearchSettings: "/api/search-settings/get-secondary-search-settings",
   reindexProgress: "/api/search-settings/reindex-progress",
   reindexErrors: "/api/search-settings/reindex-errors",
-  embeddingProviders: "/api/admin/embedding/embedding-provider",
+  localEmbeddingModels: "/api/admin/embedding/models",
 
   // ── Chat Sessions ─────────────────────────────────────────────────────────
   chatSessions: "/api/chat/get-user-chat-sessions",

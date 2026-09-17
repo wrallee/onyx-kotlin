@@ -29,6 +29,8 @@ spring:
           time_zone: UTC
   flyway:
     enabled: true
+    placeholders:
+      opensearchIndex: ${OPENSEARCH_INDEX:onyx-kotlin-chunks}
   servlet:
     multipart:
       max-file-size: ${ONYX_MAX_UPLOAD_SIZE:100MB}
@@ -45,10 +47,6 @@ onyx:
     root: ${ONYX_FILE_STORAGE_ROOT:/var/lib/onyx/files}
   model-server:
     base-url: ${MODEL_SERVER_URL:http://model-server:9000}
-    model-name: ${ONYX_EMBEDDING_MODEL_NAME:}
-    embedding-dimension: ${ONYX_EMBEDDING_DIMENSION:768}
-    max-context-length: ${ONYX_EMBEDDING_MAX_CONTEXT_LENGTH:512}
-    normalize-embeddings: ${ONYX_EMBEDDING_NORMALIZE:true}
     connect-timeout-ms: ${MODEL_SERVER_CONNECT_TIMEOUT_MS:30000}
     read-timeout-ms: ${MODEL_SERVER_READ_TIMEOUT_MS:600000}
     embed-max-retries: ${ONYX_EMBED_MAX_RETRIES:2}

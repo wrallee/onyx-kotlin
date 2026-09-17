@@ -521,7 +521,7 @@ class OpenSearchIndexerIntegrationTest {
                         "https://localhost:9200/_cluster/health >/dev/null",
                 ),
             )
-            withStartupTimeout(Duration.ofMinutes(2))
+            withStartupTimeout(Duration.ofMinutes(4))
         }
     }
 }

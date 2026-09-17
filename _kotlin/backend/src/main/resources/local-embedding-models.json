@@ -1,0 +1,24 @@
+{
+  "models": [
+    {
+      "model_name": "ibm-granite/granite-embedding-311m-multilingual-r2",
+      "display_name": "Granite",
+      "dimension": 768,
+      "normalize": true,
+      "max_context_length": 512,
+      "query_prefix": null,
+      "passage_prefix": null,
+      "index_key": "granite"
+    },
+    {
+      "model_name": "microsoft/harrier-oss-v1-0.6b",
+      "display_name": "Harrier",
+      "dimension": 1024,
+      "normalize": true,
+      "max_context_length": 512,
+      "query_prefix": null,
+      "passage_prefix": null,
+      "index_key": "harrier"
+    }
+  ]
+}

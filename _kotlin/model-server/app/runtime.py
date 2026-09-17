@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import json
-import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
 from typing import Any
-from urllib.parse import urlparse
 
-import httpx
 import numpy as np
 from chonkie import SentenceChunker
 
@@ -29,17 +25,6 @@ HARRIER_QUERY_PREFIX = (
     "Instruct: Given a web search query, retrieve relevant passages that answer "
     "the query\nQuery: "
 )
-OPENAI_COMPATIBLE_PROVIDER = "openai_compatible"
-MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024 * 1024
-
-
-class ApiTokenizer:
-    def __init__(self, encoding: Any) -> None:
-        self.encoding = encoding
-
-    def encode(self, text: str, *, add_special_tokens: bool) -> list[int]:
-        _ = add_special_tokens
-        return self.encoding.encode_ordinary(text)
 
 
 @dataclass(frozen=True)
@@ -57,17 +42,8 @@ class EmbeddingRuntime:
         self._granite_tokenizer: Any = None
         self._compiled_model: Any = None
         self._models: dict[str, Any] = {}
-        self._provider_tokenizers: dict[str, ApiTokenizer] = {}
-        self._http_client: httpx.Client | None = None
         self._semaphore = BoundedSemaphore(settings.inference_concurrency)
         self._load_lock = Lock()
-        if settings.embedding_model_name not in {
-            GRANITE_MODEL_NAME,
-            HARRIER_MODEL_NAME,
-        }:
-            raise ValueError(
-                f"Unsupported embedding model: {settings.embedding_model_name}"
-            )
         self._statuses = {
             GRANITE_MODEL_NAME: RuntimeStatus(
                 False,
@@ -82,18 +58,13 @@ class EmbeddingRuntime:
 
     @property
     def status(self) -> RuntimeStatus:
-        return self._statuses[self.settings.embedding_model_name]
+        return self._statuses[GRANITE_MODEL_NAME]
 
     def model_statuses(self) -> dict[str, RuntimeStatus]:
         return dict(self._statuses)
 
     def load(self) -> None:
-        self._load_model(self.settings.embedding_model_name)
-
-    def close(self) -> None:
-        if self._http_client is not None:
-            self._http_client.close()
-            self._http_client = None
+        self._load_model(GRANITE_MODEL_NAME)
 
     def _load_model(self, model_name: str) -> None:
         if model_name not in self._statuses:
@@ -160,16 +131,6 @@ class EmbeddingRuntime:
         if not request.texts or any(not text for text in request.texts):
             raise ValueError("texts must contain only non-empty strings.")
 
-        if request.provider_type is not None:
-            self._validate_provider(request)
-            prefix = (
-                request.manual_query_prefix
-                if request.text_type == EmbedTextType.QUERY
-                else request.manual_passage_prefix
-            )
-            texts = [f"{prefix}{text}" if prefix else text for text in request.texts]
-            return self._remote_embeddings(texts, request)
-
         model_name = self._resolve_model(request.model_name)
         prefix = None
         if (
@@ -198,17 +159,14 @@ class EmbeddingRuntime:
     ) -> list[tuple[str, list[float], int]]:
         model_name, prepared = self.prepare_chunks(request)
         embedding_texts = [embedding_text for _, embedding_text, _ in prepared]
-        if request.provider_type is not None:
-            embeddings = self._remote_embeddings(embedding_texts, request)
-        else:
-            embeddings = self._embed_texts(
-                embedding_texts,
-                model_name,
-                request.max_context_length,
-                request.normalize_embeddings,
-                reduced_dimension=None,
-                truncate=False,
-            )
+        embeddings = self._embed_texts(
+            embedding_texts,
+            model_name,
+            request.max_context_length,
+            request.normalize_embeddings,
+            reduced_dimension=None,
+            truncate=False,
+        )
         return [
             (content, embedding, token_count)
             for (content, _, token_count), embedding in zip(
@@ -223,13 +181,8 @@ class EmbeddingRuntime:
         if not request.text.strip():
             raise ValueError("text must not be blank.")
 
-        if request.provider_type is None:
-            model_name = self._resolve_model(request.model_name)
-            tokenizer = self._tokenizer(model_name)
-        else:
-            self._validate_provider(request)
-            model_name = request.model_name or ""
-            tokenizer = self._provider_tokenizer(model_name)
+        model_name = self._resolve_model(request.model_name)
+        tokenizer = self._tokenizer(model_name)
         prefix = self._embedding_prefix(
             tokenizer,
             model_name,
@@ -237,7 +190,6 @@ class EmbeddingRuntime:
             request.metadata_context,
             request.manual_passage_prefix,
             request.max_context_length,
-            provider=request.provider_type is not None,
         )
         content_limit = request.max_context_length - self._token_count(
             tokenizer, prefix
@@ -280,13 +232,8 @@ class EmbeddingRuntime:
             not chunk.content.strip() for chunk in request.chunks
         ):
             raise ValueError("chunks must contain only non-blank content.")
-        if request.provider_type is None:
-            model_name = self._resolve_model(request.model_name)
-            tokenizer = self._tokenizer(model_name)
-        else:
-            self._validate_provider(request)
-            model_name = request.model_name or ""
-            tokenizer = self._provider_tokenizer(model_name)
+        model_name = self._resolve_model(request.model_name)
+        tokenizer = self._tokenizer(model_name)
         prepared: list[tuple[str, str, int]] = []
         for chunk in request.chunks:
             prefix = self._embedding_prefix(
@@ -296,7 +243,6 @@ class EmbeddingRuntime:
                 chunk.search_context,
                 request.manual_passage_prefix,
                 request.max_context_length,
-                provider=request.provider_type is not None,
             )
             embedding_content = self._split_to_limit(
                 tokenizer,
@@ -314,8 +260,7 @@ class EmbeddingRuntime:
             )
         return prepared
 
-    def _resolve_model(self, requested_name: str | None) -> str:
-        model_name = requested_name or self.settings.embedding_model_name
+    def _resolve_model(self, model_name: str) -> str:
         if model_name not in self._statuses:
             raise ValueError(f"Unsupported embedding model: {model_name}")
         if not self._statuses[model_name].ready:
@@ -329,130 +274,6 @@ class EmbeddingRuntime:
         if model_name == GRANITE_MODEL_NAME:
             return self._granite_tokenizer
         return self._models[model_name].tokenizer
-
-    def _provider_tokenizer(self, model_name: str) -> ApiTokenizer:
-        if model_name not in self._provider_tokenizers:
-            import tiktoken
-
-            try:
-                encoding = tiktoken.encoding_for_model(model_name)
-            except KeyError:
-                encoding = tiktoken.get_encoding("cl100k_base")
-            self._provider_tokenizers[model_name] = ApiTokenizer(encoding)
-        return self._provider_tokenizers[model_name]
-
-    @staticmethod
-    def _validate_provider(
-        request: EmbedRequest | ChunkEmbedRequest | PrepareExistingChunksRequest,
-    ) -> None:
-        if request.provider_type != OPENAI_COMPATIBLE_PROVIDER:
-            raise ValueError(f"Unsupported embedding provider: {request.provider_type}")
-        if not request.model_name or not request.model_name.strip():
-            raise ValueError("model_name is required for an embedding provider.")
-        if not request.api_url:
-            raise ValueError("api_url is required for an embedding provider.")
-        try:
-            parsed = urlparse(request.api_url)
-            hostname = parsed.hostname
-        except ValueError as error:
-            raise ValueError("api_url must be an absolute HTTP(S) URL.") from error
-        if (
-            parsed.scheme.lower() not in {"http", "https"}
-            or not hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.fragment
-        ):
-            raise ValueError("api_url must be an absolute HTTP(S) URL.")
-
-    def _provider_client(self) -> httpx.Client:
-        if self._http_client is None:
-            self._http_client = httpx.Client(
-                follow_redirects=False,
-                timeout=httpx.Timeout(
-                    self.settings.provider_read_timeout_seconds,
-                    connect=self.settings.provider_connect_timeout_seconds,
-                ),
-            )
-        return self._http_client
-
-    def _remote_embeddings(
-        self,
-        texts: list[str],
-        request: EmbedRequest | ChunkEmbedRequest,
-    ) -> list[list[float]]:
-        self._validate_provider(request)
-        headers = (
-            {"Authorization": f"Bearer {request.api_key}"} if request.api_key else {}
-        )
-        try:
-            with self._provider_client().stream(
-                "POST",
-                request.api_url or "",
-                headers=headers,
-                json={
-                    "input": texts,
-                    "model": request.model_name,
-                    "encoding_format": "float",
-                },
-            ) as response:
-                if response.status_code == 429 or response.status_code >= 500:
-                    raise RuntimeError(
-                        f"Embedding provider returned HTTP {response.status_code}."
-                    )
-                if response.status_code >= 300:
-                    raise ValueError(
-                        f"Embedding provider returned HTTP {response.status_code}."
-                    )
-                body = bytearray()
-                for part in response.iter_bytes():
-                    body.extend(part)
-                    if len(body) > MAX_PROVIDER_RESPONSE_BYTES:
-                        raise RuntimeError("Embedding provider response is too large.")
-        except httpx.HTTPError as error:
-            raise RuntimeError("Embedding provider request failed.") from error
-
-        try:
-            payload = json.loads(body)
-            data = payload["data"]
-            if not isinstance(data, list) or len(data) != len(texts):
-                raise ValueError
-            indexed: dict[int, list[float]] = {}
-            for item in data:
-                index = item["index"]
-                vector = item["embedding"]
-                if (
-                    not isinstance(index, int)
-                    or isinstance(index, bool)
-                    or index in indexed
-                    or not isinstance(vector, list)
-                    or not vector
-                    or any(
-                        not isinstance(value, (int, float))
-                        or isinstance(value, bool)
-                        or not math.isfinite(value)
-                        for value in vector
-                    )
-                ):
-                    raise ValueError
-                indexed[index] = [float(value) for value in vector]
-            if set(indexed) != set(range(len(texts))):
-                raise ValueError
-            vectors = [indexed[index] for index in range(len(texts))]
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise RuntimeError(
-                "Embedding provider returned an invalid response."
-            ) from error
-
-        if request.normalize_embeddings:
-            normalized: list[list[float]] = []
-            for vector in vectors:
-                norm = math.sqrt(sum(value * value for value in vector))
-                if norm == 0 or not math.isfinite(norm):
-                    raise RuntimeError("Embedding provider returned a zero vector.")
-                normalized.append([value / norm for value in vector])
-            return normalized
-        return vectors
 
     def _embed_texts(
         self,
@@ -585,24 +406,12 @@ class EmbeddingRuntime:
     def _trim_to_tokens(cls, tokenizer: Any, text: str, max_tokens: int) -> str:
         if not text or max_tokens < 1:
             return ""
-        if not isinstance(tokenizer, ApiTokenizer):
-            token_ids = tokenizer.encode(text, add_special_tokens=False)
-            if len(token_ids) <= max_tokens:
-                return text
-            return tokenizer.decode(
-                token_ids[:max_tokens], skip_special_tokens=True
-            ).strip()
-        if cls._content_token_count(tokenizer, text) <= max_tokens:
+        token_ids = tokenizer.encode(text, add_special_tokens=False)
+        if len(token_ids) <= max_tokens:
             return text
-        low = 0
-        high = len(text)
-        while low < high:
-            middle = (low + high + 1) // 2
-            if cls._content_token_count(tokenizer, text[:middle]) <= max_tokens:
-                low = middle
-            else:
-                high = middle - 1
-        return text[:low].strip()
+        return tokenizer.decode(
+            token_ids[:max_tokens], skip_special_tokens=True
+        ).strip()
 
     def _build_context(
         self, tokenizer: Any, title: str, metadata_context: str, max_tokens: int
@@ -630,14 +439,12 @@ class EmbeddingRuntime:
         metadata_context: str,
         manual_passage_prefix: str | None,
         max_context_length: int,
-        *,
-        provider: bool = False,
     ) -> str:
         context_limit = min(MAX_CONTEXT_TOKENS, max_context_length // 4)
         context = self._build_context(tokenizer, title, metadata_context, context_limit)
         model_prefix = (
             manual_passage_prefix
-            if (provider or model_name != HARRIER_MODEL_NAME) and manual_passage_prefix
+            if model_name != HARRIER_MODEL_NAME and manual_passage_prefix
             else ""
         )
         context_prefix = f"{context}\n\n" if context else ""
@@ -658,9 +465,6 @@ class EmbeddingRuntime:
     ) -> list[str]:
         if self._token_count(tokenizer, prefix + text) <= max_tokens:
             return [text]
-        if isinstance(tokenizer, ApiTokenizer):
-            return self._split_api_to_limit(tokenizer, text, prefix, max_tokens)
-
         offsets = tokenizer(
             text,
             add_special_tokens=False,
@@ -695,33 +499,6 @@ class EmbeddingRuntime:
             pieces.append(text[start:candidate_end])
             start = candidate_end
             offset_index = end_index
-        return pieces
-
-    def _split_api_to_limit(
-        self, tokenizer: ApiTokenizer, text: str, prefix: str, max_tokens: int
-    ) -> list[str]:
-        pieces: list[str] = []
-        start = 0
-        while start < len(text):
-            low = start + 1
-            high = len(text)
-            candidate_end = start
-            while low <= high:
-                middle = (low + high) // 2
-                if (
-                    self._token_count(tokenizer, prefix + text[start:middle])
-                    <= max_tokens
-                ):
-                    candidate_end = middle
-                    low = middle + 1
-                else:
-                    high = middle - 1
-            if candidate_end <= start:
-                raise ValueError(
-                    "A single token does not fit within max_context_length."
-                )
-            pieces.append(text[start:candidate_end])
-            start = candidate_end
         return pieces
 
     @staticmethod

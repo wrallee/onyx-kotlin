@@ -15,13 +15,10 @@ def _boolean(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     embedding_model_path: Path
-    embedding_model_name: str
     embedding_openvino_file: str
     harrier_model_path: Path
     inference_concurrency: int
     torch_threads: int
-    provider_connect_timeout_seconds: float = 30.0
-    provider_read_timeout_seconds: float = 600.0
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -31,10 +28,6 @@ class Settings:
                     "EMBEDDING_MODEL_PATH",
                     "/models/granite-embedding-311m-multilingual-r2-int8-openvino",
                 )
-            ),
-            embedding_model_name=os.getenv(
-                "EMBEDDING_MODEL_NAME",
-                "ibm-granite/granite-embedding-311m-multilingual-r2",
             ),
             embedding_openvino_file=os.getenv(
                 "EMBEDDING_OPENVINO_FILE",
@@ -47,12 +40,4 @@ class Settings:
                 1, int(os.getenv("MODEL_INFERENCE_CONCURRENCY", "1"))
             ),
             torch_threads=max(1, int(os.getenv("TORCH_NUM_THREADS", "4"))),
-            provider_connect_timeout_seconds=max(
-                0.001,
-                int(os.getenv("MODEL_SERVER_CONNECT_TIMEOUT_MS", "30000")) / 1000,
-            ),
-            provider_read_timeout_seconds=max(
-                0.001,
-                int(os.getenv("MODEL_SERVER_READ_TIMEOUT_MS", "600000")) / 1000,
-            ),
         )

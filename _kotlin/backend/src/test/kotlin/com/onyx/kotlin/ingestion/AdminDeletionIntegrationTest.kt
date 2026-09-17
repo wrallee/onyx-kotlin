@@ -2,6 +2,7 @@ package com.onyx.kotlin.ingestion
 
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.opensearch.PairExternalWriteFence
+import com.onyx.kotlin.opensearch.OpenSearchIndexTarget
 
 import tools.jackson.databind.ObjectMapper
 import com.onyx.kotlin.api.ApiException
@@ -144,7 +145,7 @@ class AdminDeletionIntegrationTest : H2IntegrationTest() {
             doAnswer {
                 indexDeleted.countDown()
                 Unit
-            }.`when`(indexer).deletePair(fixture.pairId)
+            }.`when`(indexer).deletePair(anyIndexTarget(), org.mockito.ArgumentMatchers.eq(fixture.pairId))
 
             deletion = executor.submit {
                 admin.deletePair(DeletionAttemptRequest(fixture.connectorId, fixture.credentialId))
@@ -183,7 +184,7 @@ class AdminDeletionIntegrationTest : H2IntegrationTest() {
             ),
         )
         doAnswer { throw IllegalStateException("index unavailable") }
-            .`when`(indexer).deletePair(fixture.pairId)
+            .`when`(indexer).deletePair(anyIndexTarget(), org.mockito.ArgumentMatchers.eq(fixture.pairId))
 
         val error = catchThrowable { admin.deleteConnector(fixture.connectorId) }
 
@@ -262,8 +263,11 @@ class AdminDeletionIntegrationTest : H2IntegrationTest() {
             started.countDown()
             check(release.await(10, TimeUnit.SECONDS))
             Unit
-        }.`when`(indexer).deletePair(pairId)
+        }.`when`(indexer).deletePair(anyIndexTarget(), org.mockito.ArgumentMatchers.eq(pairId))
     }
+
+    private fun anyIndexTarget(): OpenSearchIndexTarget =
+        any(OpenSearchIndexTarget::class.java) ?: OpenSearchIndexTarget("", 1)
 
     private fun connectorRequest(name: String): ConnectorRequest = ConnectorRequest(
         name = name,

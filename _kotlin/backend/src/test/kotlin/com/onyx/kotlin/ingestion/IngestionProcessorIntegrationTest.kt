@@ -22,7 +22,11 @@ import com.onyx.kotlin.documentset.DocumentSetPairEntity
 import com.onyx.kotlin.documentset.DocumentSetPairRepository
 import com.onyx.kotlin.documentset.DocumentSetRepository
 import com.onyx.kotlin.model.ModelServerClient
+import com.onyx.kotlin.model.EmbeddingExecutionConfig
+import com.onyx.kotlin.indexing.IndexSettingsService
+import com.onyx.kotlin.indexing.SearchRuntimeSettings
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
+import com.onyx.kotlin.opensearch.OpenSearchIndexTarget
 import com.onyx.kotlin.search.IndexedMetadata
 import com.onyx.kotlin.ingestion.IngestionAttemptEntity
 import com.onyx.kotlin.ingestion.IngestionAttemptRepository
@@ -91,6 +95,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     @MockitoBean private lateinit var remoteLoaders: RemoteConnectorLoaders
     @MockitoBean private lateinit var embedder: ModelServerClient
     @MockitoBean private lateinit var indexer: OpenSearchIndexer
+    @MockitoBean private lateinit var indexSettings: IndexSettingsService
 
     @BeforeEach
     fun resetDatabase() {
@@ -99,9 +104,32 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             "ingestion_jobs", "ingestion_attempts", "ingestion_checkpoints", "indexed_documents",
             "connector_credential_pairs", "connectors", "credentials",
         )
+        jdbc.update("DELETE FROM search_settings WHERE status <> 'PRESENT'")
         doAnswer { invocation ->
             listOf(ModelServerClient.ChunkEmbedding(invocation.getArgument(0), listOf(0.1), 1))
-        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString(), anyEmbeddingConfig())
+        val currentRuntime = SearchRuntimeSettings(
+            1,
+            "ibm-granite/granite-embedding-311m-multilingual-r2",
+            EmbeddingExecutionConfig("ibm-granite/granite-embedding-311m-multilingual-r2", 1, true, 512),
+            OpenSearchIndexTarget("current-index", 1),
+        )
+        org.mockito.Mockito.`when`(indexSettings.currentRuntime()).thenReturn(currentRuntime)
+        org.mockito.Mockito.`when`(indexSettings.retainedRuntimes()).thenReturn(listOf(currentRuntime))
+    }
+
+    @Test
+    fun `ingestion uses the current database embedding config`() {
+        val run = createRun()
+        load(sequenceOf(batch(1, false, document("one"))))
+
+        processor.process(run.jobId)
+
+        val calls = mockingDetails(embedder).invocations.filter { it.method.name == "chunkAndEmbed" }
+        assertThat(calls).hasSize(1)
+        assertThat(calls.single().arguments[3]).isEqualTo(
+            EmbeddingExecutionConfig("ibm-granite/granite-embedding-311m-multilingual-r2", 1, true, 512),
+        )
     }
 
     @Test
@@ -116,7 +144,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
 
         processor.process(run.jobId)
 
-        assertThat(checkpoints.findById(run.pairId).orElseThrow().checkpointJson?.path("cursor")?.asInt()).isEqualTo(2)
+        assertThat(checkpoints.findById(IngestionCheckpointId(run.pairId, 1)).orElseThrow().checkpointJson?.path("cursor")?.asInt()).isEqualTo(2)
         assertThat(documents.countByCcPairId(run.pairId)).isEqualTo(2)
         assertThat(attempts.findById(run.attemptId).orElseThrow().status).isEqualTo(AttemptStatus.SUCCESS)
         assertThat(jobs.findById(run.jobId).orElseThrow().state).isEqualTo(JobState.SUCCEEDED)
@@ -178,7 +206,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             pair.status = PairStatus.PAUSED
             pairs.saveAndFlush(pair)
             listOf(ModelServerClient.ChunkEmbedding("one", listOf(0.1), 1))
-        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString(), anyEmbeddingConfig())
         load(
             sequence {
                 yield(batch(1, true, document("one")))
@@ -191,9 +219,9 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
 
         assertThat(documents.findAll().map { it.sourceDocumentId }).containsExactly("one")
         assertThat(requestedSecondBatch).isFalse()
-        assertThat(checkpoints.findById(run.pairId).orElseThrow().checkpointJson?.path("cursor")?.asInt()).isEqualTo(1)
+        assertThat(checkpoints.findById(IngestionCheckpointId(run.pairId, 1)).orElseThrow().checkpointJson?.path("cursor")?.asInt()).isEqualTo(1)
         assertThat(attempts.findById(run.attemptId).orElseThrow().status).isEqualTo(AttemptStatus.CANCELED)
-        assertThat(jobs.findById(run.jobId).orElseThrow().state).isEqualTo(JobState.SUCCEEDED)
+        assertThat(jobs.findById(run.jobId).orElseThrow().state).isEqualTo(JobState.CANCELED)
         assertThat(pairs.findById(run.pairId).orElseThrow().status).isEqualTo(PairStatus.PAUSED)
     }
 
@@ -210,8 +238,8 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         assertThat(firstAttempt.pollRangeStart).isEqualTo(Instant.EPOCH)
         assertThat(firstAttempt.pollRangeEnd).isBetween(beforeFirst, afterFirst)
 
-        val secondAttempt = attempts.save(IngestionAttemptEntity(ccPairId = first.pairId))
-        val secondJob = jobs.save(IngestionJobEntity(attemptId = requireNotNull(secondAttempt.id), ccPairId = first.pairId))
+        val secondAttempt = attempts.save(IngestionAttemptEntity(ccPairId = first.pairId, searchSettingsId = 1))
+        val secondJob = jobs.save(IngestionJobEntity(attemptId = requireNotNull(secondAttempt.id), ccPairId = first.pairId, searchSettingsId = 1))
         load(sequenceOf(batch(2, false)))
         val beforeSecond = Instant.now()
 
@@ -235,7 +263,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
 
         processor.process(run.jobId)
 
-        assertThat(checkpoints.findById(run.pairId).orElseThrow().checkpointJson?.path("cursor")?.asInt()).isEqualTo(1)
+        assertThat(checkpoints.findById(IngestionCheckpointId(run.pairId, 1)).orElseThrow().checkpointJson?.path("cursor")?.asInt()).isEqualTo(1)
         assertThat(documents.countByCcPairId(run.pairId)).isEqualTo(1)
         assertThat(attempts.findById(run.attemptId).orElseThrow().status).isEqualTo(AttemptStatus.FAILED)
     }
@@ -291,7 +319,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     @Test
     fun successfulDocumentResolvesOnlyItsOwnPriorErrors() {
         val run = createRun()
-        val priorAttempt = attempts.save(IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS))
+        val priorAttempt = attempts.save(IngestionAttemptEntity(ccPairId = run.pairId, searchSettingsId = 1, status = AttemptStatus.COMPLETED_WITH_ERRORS))
         val resolvedCandidate = errors.save(
             IngestionErrorEntity(attemptId = requireNotNull(priorAttempt.id), sourceDocumentId = "one", failureMessage = "old one"),
         )
@@ -310,7 +338,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun completeFullReindexResolvesPriorErrorsButKeepsCurrentFailures() {
         val run = createRun(fromBeginning = true)
         val priorAttempt = attempts.save(
-            IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS),
+            IngestionAttemptEntity(ccPairId = run.pairId, searchSettingsId = 1, status = AttemptStatus.COMPLETED_WITH_ERRORS),
         )
         val priorError = errors.save(
             IngestionErrorEntity(
@@ -340,7 +368,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun incompleteFullReindexKeepsPriorDocumentAndEntityErrors() {
         val run = createRun(fromBeginning = true)
         val priorAttempt = attempts.save(
-            IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS),
+            IngestionAttemptEntity(ccPairId = run.pairId, searchSettingsId = 1, status = AttemptStatus.COMPLETED_WITH_ERRORS),
         )
         val priorDocumentError = errors.save(
             IngestionErrorEntity(
@@ -388,11 +416,6 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             Timestamp.from(now.minusSeconds(1)),
             run.jobId,
         )
-        jdbc.update(
-            "UPDATE connector_credential_pairs SET ingestion_lease_expires_at = ? WHERE id = ?",
-            Timestamp.from(now.minusSeconds(1)),
-            run.pairId,
-        )
         val reclaimedClaim = requireNotNull(claims.claimNext(now.plusSeconds(1)))
         assertThat(reclaimedClaim.attemptId).isEqualTo(firstClaim.attemptId)
         load(sequenceOf(batch(1, false)))
@@ -406,7 +429,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun reclaimedJobStopsStaleWorkerBeforeResolvingErrors() {
         val run = createRun(fromBeginning = true)
         val priorAttempt = attempts.save(
-            IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS),
+            IngestionAttemptEntity(ccPairId = run.pairId, searchSettingsId = 1, status = AttemptStatus.COMPLETED_WITH_ERRORS),
         )
         val priorError = errors.save(
             IngestionErrorEntity(
@@ -424,7 +447,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             pruningStarted.countDown()
             check(releasePruning.await(10, TimeUnit.SECONDS))
             Unit
-        }.`when`(indexer).deleteDocuments(run.pairId, setOf("obsolete"))
+        }.`when`(indexer).deleteDocuments(OpenSearchIndexTarget("current-index", 1), run.pairId, setOf("obsolete"))
         val executor = Executors.newSingleThreadExecutor()
         try {
             val staleWorker = executor.submit { processor.process(oldClaim) }
@@ -433,11 +456,6 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
                 "UPDATE ingestion_jobs SET lease_expires_at = ? WHERE id = ?",
                 Instant.now().minusSeconds(1),
                 run.jobId,
-            )
-            jdbc.update(
-                "UPDATE connector_credential_pairs SET ingestion_lease_expires_at = ? WHERE id = ?",
-                Instant.now().minusSeconds(1),
-                run.pairId,
             )
             assertThat(requireNotNull(claims.claimNext()).token).isNotEqualTo(oldClaim.token)
             releasePruning.countDown()
@@ -454,7 +472,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     @Test
     fun successfulAttemptResolvesPriorEntityErrors() {
         val run = createRun()
-        val priorAttempt = attempts.save(IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS))
+        val priorAttempt = attempts.save(IngestionAttemptEntity(ccPairId = run.pairId, searchSettingsId = 1, status = AttemptStatus.COMPLETED_WITH_ERRORS))
         val entityError = errors.save(
             IngestionErrorEntity(attemptId = requireNotNull(priorAttempt.id), entityId = "space-1", failureMessage = "old entity"),
         )
@@ -468,7 +486,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     @Test
     fun failedDocumentDoesNotResolveItsPriorErrorWhenAlsoReturned() {
         val run = createRun()
-        val priorAttempt = attempts.save(IngestionAttemptEntity(ccPairId = run.pairId, status = AttemptStatus.COMPLETED_WITH_ERRORS))
+        val priorAttempt = attempts.save(IngestionAttemptEntity(ccPairId = run.pairId, searchSettingsId = 1, status = AttemptStatus.COMPLETED_WITH_ERRORS))
         val priorError = errors.save(
             IngestionErrorEntity(attemptId = requireNotNull(priorAttempt.id), sourceDocumentId = "one", failureMessage = "old one"),
         )
@@ -515,7 +533,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
 
     @Test
     fun repeatedFailureTransitionsToPausedInMultiTenant() {
-        val customClaims = JobClaimService(jobs, pairs, attempts, errors, OnyxProperties(multiTenant = true))
+        val customClaims = JobClaimService(jobs, pairs, attempts, errors, OnyxProperties(multiTenant = true), indexSettings)
         val run = createRun()
         transactionTemplate.execute {
             val claim = requireNotNull(customClaims.claimJob(run.jobId))
@@ -529,7 +547,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
 
     @Test
     fun repeatedFailurePreservesStatusInSingleTenant() {
-        val customClaims = JobClaimService(jobs, pairs, attempts, errors, OnyxProperties(multiTenant = false))
+        val customClaims = JobClaimService(jobs, pairs, attempts, errors, OnyxProperties(multiTenant = false), indexSettings)
         val run = createRun()
         transactionTemplate.execute {
             val claim = requireNotNull(customClaims.claimJob(run.jobId))
@@ -608,7 +626,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         saveDocument(run.pairId, "obsolete")
         load(sequenceOf(batch(1, false)))
         doThrow(IllegalStateException("OpenSearch failed"))
-            .`when`(indexer).deleteDocuments(run.pairId, setOf("obsolete"))
+            .`when`(indexer).deleteDocuments(OpenSearchIndexTarget("current-index", 1), run.pairId, setOf("obsolete"))
 
         processor.process(run.jobId)
 
@@ -622,7 +640,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         val run = createRun()
         load(sequenceOf(batch(1, false, document("one"))))
         doThrow(IllegalStateException("tail cleanup failed"))
-            .`when`(indexer).deleteStaleChunks(run.pairId, "one", 1)
+            .`when`(indexer).deleteStaleChunks(OpenSearchIndexTarget("current-index", 1), run.pairId, "one", 1)
 
         processor.process(run.jobId)
 
@@ -644,7 +662,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             ),
         )
         doThrow(IllegalStateException("chunking failed"))
-            .`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+            .`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString(), anyEmbeddingConfig())
 
         processor.process(run.jobId)
 
@@ -666,7 +684,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
 
         val indexedMemberships = mockingDetails(indexer).invocations
             .filter { it.method.name == "upsert" }
-            .map { it.arguments.getOrNull(8) }
+            .map { it.arguments.getOrNull(9) }
         assertThat(indexedMemberships).containsExactly(listOf("Engineering"), listOf("Engineering"))
     }
 
@@ -736,7 +754,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         )
         val indexedMetadata = mockingDetails(indexer).invocations
             .filter { it.method.name == "upsert" }
-            .map { listOf(it.arguments.getOrNull(9), it.arguments.getOrNull(10), it.arguments.getOrNull(11)) }
+            .map { listOf(it.arguments.getOrNull(10), it.arguments.getOrNull(11), it.arguments.getOrNull(12)) }
         assertThat(indexedMetadata).containsExactly(
             listOf(fileUpdatedAt, listOf("file-owner@example.com"), listOf("file-reviewer@example.com")),
             listOf(remoteUpdatedAt, listOf("remote-owner@example.com"), listOf("remote-reviewer@example.com")),
@@ -761,7 +779,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
                 ModelServerClient.ChunkEmbedding("first sentence.", listOf(0.1), 20),
                 ModelServerClient.ChunkEmbedding("second sentence.", listOf(0.2), 21),
             )
-        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString(), anyEmbeddingConfig())
         doReturn(
             sequenceOf(
                 batch(
@@ -794,11 +812,11 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             "Status: in progress",
         )
         val writes = mockingDetails(indexer).invocations.filter { it.method.name == "upsert" }
-        assertThat(writes.map { it.arguments[4] }).containsExactly("first sentence.", "second sentence.")
-        assertThat(writes.map { it.arguments[13] }).containsOnly(
+        assertThat(writes.map { it.arguments[5] }).containsExactly("first sentence.", "second sentence.")
+        assertThat(writes.map { it.arguments[14] }).containsOnly(
             IndexedMetadata(projectKey = "abc", status = "in progress", documentType = "jira_issue"),
         )
-        verify(indexer).deleteStaleChunks(run.pairId, "ABC-123", 2)
+        verify(indexer).deleteStaleChunks(OpenSearchIndexTarget("current-index", 1), run.pairId, "ABC-123", 2)
     }
 
     @Test
@@ -822,7 +840,33 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
-    fun crashedIngestionJobIsReclaimedWithFreshPairToken() {
+    fun `same pair can claim one job per search setting`() {
+        val run = createRun()
+        val futureId = createFutureSetting()
+        val futureJobId = commands.enqueuePair(run.pairId, futureId, fromBeginning = true)
+
+        val current = requireNotNull(claims.claimJob(run.jobId))
+        val future = requireNotNull(claims.claimJob(futureJobId))
+
+        assertThat(current.searchSettingsId).isEqualTo(1)
+        assertThat(future.searchSettingsId).isEqualTo(futureId)
+    }
+
+    @Test
+    fun `future job completion does not change connector status`() {
+        val pairId = createPair(status = PairStatus.PAUSED)
+        val futureId = createFutureSetting()
+        val jobId = commands.enqueuePair(pairId, futureId, fromBeginning = true)
+        val claim = requireNotNull(claims.claimJob(jobId))
+
+        assertThat(claims.start(claim)).isTrue()
+        assertThat(claims.complete(claim, AttemptStatus.SUCCESS, 0, 0, 0, false)).isTrue()
+
+        assertThat(pairs.findById(pairId).orElseThrow().status).isEqualTo(PairStatus.PAUSED)
+    }
+
+    @Test
+    fun crashedIngestionJobIsReclaimedWithFreshToken() {
         val run = createRun()
         val now = jobs.findById(run.jobId).orElseThrow().runAfter.plusSeconds(1)
         val first = requireNotNull(claims.claimNext(now))
@@ -831,12 +875,6 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             Timestamp.from(now.minusSeconds(1)),
             first.jobId,
         )
-        jdbc.update(
-            "UPDATE connector_credential_pairs SET ingestion_lease_expires_at = ? WHERE id = ?",
-            Timestamp.from(now.minusSeconds(1)),
-            run.pairId,
-        )
-
         val reclaimed = requireNotNull(claims.claimNext(now.plusSeconds(1)))
 
         assertThat(reclaimed.jobId).isEqualTo(first.jobId)
@@ -855,7 +893,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             embeddingStarted.countDown()
             check(releaseEmbedding.await(10, TimeUnit.SECONDS))
             listOf(ModelServerClient.ChunkEmbedding("one", listOf(0.1), 1))
-        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString(), anyEmbeddingConfig())
         val executor = Executors.newSingleThreadExecutor()
         lateinit var reclaimed: IngestionClaim
         try {
@@ -865,11 +903,6 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
                 "UPDATE ingestion_jobs SET lease_expires_at = ? WHERE id = ?",
                 Instant.now().minusSeconds(1),
                 run.jobId,
-            )
-            jdbc.update(
-                "UPDATE connector_credential_pairs SET ingestion_lease_expires_at = ? WHERE id = ?",
-                Instant.now().minusSeconds(1),
-                run.pairId,
             )
             reclaimed = requireNotNull(claims.claimNext())
             assertThat(reclaimed.token).isNotEqualTo(oldClaim.token)
@@ -927,7 +960,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             embeddingStarted.countDown()
             check(releaseEmbedding.await(10, TimeUnit.SECONDS))
             listOf(ModelServerClient.ChunkEmbedding("one", listOf(0.1), 1))
-        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString(), anyEmbeddingConfig())
         val executor = Executors.newSingleThreadExecutor()
         try {
             val staleWorker = executor.submit { processor.process(claim) }
@@ -965,6 +998,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             orphanedChunk.set(true)
             Unit
         }.`when`(indexer).upsert(
+            OpenSearchIndexTarget("current-index", 1),
             pairId = run.pairId,
             sourceDocumentId = "one",
             chunkId = 0,
@@ -981,7 +1015,10 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             indexDeleteHadDatabaseTransaction.set(TransactionSynchronizationManager.isActualTransactionActive())
             orphanedChunk.set(false)
             Unit
-        }.`when`(indexer).deletePair(run.pairId)
+        }.`when`(indexer).deletePair(
+            anyIndexTarget(),
+            org.mockito.ArgumentMatchers.eq(run.pairId),
+        )
         val executor = Executors.newFixedThreadPool(2)
         try {
             val worker = executor.submit { processor.process(claim) }
@@ -1018,7 +1055,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
             embeddingStarted.countDown()
             check(releaseEmbedding.await(2, TimeUnit.SECONDS))
             listOf(ModelServerClient.ChunkEmbedding(invocation.getArgument(0), listOf(0.1), 1))
-        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString())
+        }.`when`(embedder).chunkAndEmbed(anyString(), anyString(), anyString(), anyEmbeddingConfig())
 
         val executor = Executors.newSingleThreadExecutor()
         try {
@@ -1056,7 +1093,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun queuesIncrementalRunWhenRefreshFrequencyIsDue() {
         val now = Instant.parse("2026-09-01T00:00:00Z")
         val pairId = createPair(refreshFreq = 60)
-        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, status = AttemptStatus.SUCCESS))
+        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1, status = AttemptStatus.SUCCESS))
         jdbc.update(
             "UPDATE ingestion_attempts SET time_updated = ? WHERE id = ?",
             Timestamp.from(now.minusSeconds(61)),
@@ -1095,7 +1132,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun doesNotQueuePairInRepeatedErrorStateBeforeRefreshFreq() {
         val now = Instant.parse("2026-09-01T00:00:00Z")
         val pairId = createPair(refreshFreq = 3600, inRepeatedErrorState = true)
-        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, status = AttemptStatus.FAILED))
+        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1, status = AttemptStatus.FAILED))
         jdbc.update(
             "UPDATE ingestion_attempts SET time_updated = ? WHERE id = ?",
             Timestamp.from(now.minusSeconds(10)),
@@ -1112,7 +1149,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun queuesInitialIndexingWhenNotRepeatedError() {
         val now = Instant.parse("2026-09-01T00:00:00Z")
         val pairId = createPair(refreshFreq = 3600, status = PairStatus.INITIAL_INDEXING)
-        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, status = AttemptStatus.FAILED))
+        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1, status = AttemptStatus.FAILED))
         jdbc.update(
             "UPDATE ingestion_attempts SET time_updated = ? WHERE id = ?",
             Timestamp.from(now.minusSeconds(5)),
@@ -1129,7 +1166,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
     fun doesNotQueueInitialIndexingWhenInRepeatedErrorStateBeforeRefreshFreq() {
         val now = Instant.parse("2026-09-01T00:00:00Z")
         val pairId = createPair(refreshFreq = 3600, status = PairStatus.INITIAL_INDEXING, inRepeatedErrorState = true)
-        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, status = AttemptStatus.FAILED))
+        val previous = attempts.save(IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1, status = AttemptStatus.FAILED))
         jdbc.update(
             "UPDATE ingestion_attempts SET time_updated = ? WHERE id = ?",
             Timestamp.from(now.minusSeconds(10)),
@@ -1205,6 +1242,27 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         }
     }
 
+    private fun anyEmbeddingConfig(): EmbeddingExecutionConfig =
+        org.mockito.ArgumentMatchers.any(EmbeddingExecutionConfig::class.java)
+            ?: EmbeddingExecutionConfig("", 0, false, 0)
+
+    private fun anyIndexTarget(): OpenSearchIndexTarget =
+        any(OpenSearchIndexTarget::class.java) ?: OpenSearchIndexTarget("", 1)
+
+    private fun createFutureSetting(): Long {
+        jdbc.update(
+            """
+                INSERT INTO search_settings(model_name, index_name, status, singleton_marker)
+                VALUES (?, ?, 'FUTURE', 1)
+            """.trimIndent(),
+            "microsoft/harrier-oss-v1-0.6b",
+            "current-index-harrier",
+        )
+        return requireNotNull(
+            jdbc.queryForObject("SELECT id FROM search_settings WHERE status = 'FUTURE'", Long::class.java),
+        )
+    }
+
     private fun createRun(
         refreshFreq: Long? = null,
         fromBeginning: Boolean = false,
@@ -1223,12 +1281,13 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         val attempt = attempts.save(
             IngestionAttemptEntity(
                 ccPairId = pairId,
+                searchSettingsId = 1,
                 fromBeginning = fromBeginning,
                 pollRangeStart = pollRangeStart,
                 pollRangeEnd = pollRangeEnd,
             ),
         )
-        val job = jobs.save(IngestionJobEntity(attemptId = requireNotNull(attempt.id), ccPairId = pairId))
+        val job = jobs.save(IngestionJobEntity(attemptId = requireNotNull(attempt.id), ccPairId = pairId, searchSettingsId = 1))
         return Run(pairId, requireNotNull(attempt.id), requireNotNull(job.id))
     }
 
@@ -1284,6 +1343,7 @@ class IngestionProcessorIntegrationTest : H2IntegrationTest() {
         documents.save(
             IndexedDocumentEntity(
                 ccPairId = pairId,
+                searchSettingsId = 1,
                 sourceDocumentId = sourceDocumentId,
                 title = sourceDocumentId,
                 contentHash = sourceDocumentId,
