@@ -222,6 +222,7 @@ const KOTLIN_ADMIN_ENABLED_ITEMS = new Set<AdminNavItemId>([
   "existingConnectors",
   "addConnector",
   "documentSets",
+  "indexSettings",
 ]);
 
 /**

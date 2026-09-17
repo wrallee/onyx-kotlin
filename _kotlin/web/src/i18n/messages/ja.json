@@ -3585,6 +3585,27 @@
       }
     },
     "indexSettings": {
+      "localModels": {
+        "description": "Manage the local embedding model and rebuild its search index.",
+        "current": "Current",
+        "dimensions": "{count} dimensions",
+        "syncAndSwitch": "Sync & Switch",
+        "fullReindex": "Full Reindex",
+        "syncing": "Syncing…",
+        "reindexing": "Reindexing…",
+        "boundedDescription": "The current index remains active until the final bounded update completes.",
+        "progressSummary": "{completed}/{total} complete · {running} running · {failed} failed",
+        "preparing": "Preparing…",
+        "reindexProgress": "Reindex progress",
+        "errors": "Errors",
+        "cancel": "Cancel",
+        "errorsTitle": "Reindex Errors",
+        "retryAll": "Retry All",
+        "indexingStatus": "Indexing Status",
+        "connector": "Connector {id}",
+        "retry": "Retry",
+        "requestFailed": "Request failed"
+      },
       "actions": {
         "applyForward": {
           "label": "新規および更新されたドキュメントに適用"

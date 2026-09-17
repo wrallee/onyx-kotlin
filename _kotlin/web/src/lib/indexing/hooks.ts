@@ -1,131 +1,55 @@
 "use client";
 
-/**
- * React hooks for embedding model and index settings data.
- *
- * These hooks back the admin Index Settings page and are intentionally
- * separate from `lib/settings/hooks.ts` — they fetch indexing configuration
- * (embedding models, reranking, provider credentials), not application
- * settings like feature flags or UI preferences.
- */
-
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import { errorHandlingFetcher } from "@/lib/fetcher";
 import { SWR_KEYS } from "@/lib/swr-keys";
-import {
-  ConfiguredEmbeddingProvider,
-  EmbeddingModelResponse,
-  LLMContextualCost,
+import type {
+  LocalEmbeddingModel,
   ReindexErrorRow,
   ReindexProgress,
-  SavedSearchSettings,
+  SearchSettings,
 } from "@/lib/indexing/types";
 
-/**
- * Determines the SWR `refreshInterval` for the secondary (in-progress)
- * embedding model poll:
- * - 5 s while a migration is in flight (data present)
- * - 60 s otherwise — catches migrations started elsewhere without hammering
- *   the backend when idle
- */
-export function secondaryRefreshInterval<T>(
-  latestData: T | null | undefined
-): number {
-  return latestData ? 5000 : 60000;
+export function secondaryRefreshInterval<T>(value: T | null | undefined) {
+  return value ? 5000 : 60000;
 }
 
-/**
- * Fetch the active embedding model + search configuration.
- * Polls only when `pollIntervalMs` is provided.
- */
-export function useCurrentSearchSettings({
-  pollIntervalMs = 0,
-}: { pollIntervalMs?: number } = {}) {
-  return useSWR<SavedSearchSettings | null>(
-    SWR_KEYS.currentSearchSettings,
-    errorHandlingFetcher,
-    { refreshInterval: pollIntervalMs }
-  );
-}
+export const useCurrentSearchSettings = () =>
+  useSWR<SearchSettings>(SWR_KEYS.currentSearchSettings, errorHandlingFetcher);
 
-/**
- * Fetch the secondary (in-progress) search settings; `null` when no re-index is
- * running. Carries `use_port_flow` (gates which reindex banner shows).
- * Self-throttles via `secondaryRefreshInterval`.
- */
-export function useSecondarySearchSettings() {
-  return useSWR<SavedSearchSettings | null>(
+export const useSecondarySearchSettings = () =>
+  useSWR<SearchSettings | null>(
     SWR_KEYS.secondarySearchSettings,
     errorHandlingFetcher,
-    { refreshInterval: secondaryRefreshInterval }
+    {
+      refreshInterval: secondaryRefreshInterval,
+      onSuccess: (secondary) => {
+        if (!secondary) {
+          void mutate(SWR_KEYS.currentSearchSettings);
+          void mutate(SWR_KEYS.localEmbeddingModels);
+        }
+      },
+    }
   );
-}
 
-/**
- * Fetch the active embedding model from the current search settings key.
- * Polls only when `pollIntervalMs` is provided.
- *
- * The returned shape does NOT carry a `description` — descriptions are
- * frontend-only. Look them up via `getCurrentModelCopy` if needed.
- */
-export function useCurrentEmbeddingModel({
-  pollIntervalMs = 0,
-}: { pollIntervalMs?: number } = {}) {
-  return useSWR<EmbeddingModelResponse | null>(
-    SWR_KEYS.currentSearchSettings,
-    errorHandlingFetcher,
-    { refreshInterval: pollIntervalMs }
-  );
-}
-
-/**
- * Fetch LLM models available for contextual RAG, including per-model token
- * cost.
- */
-export function useLLMContextualCosts() {
-  return useSWR<LLMContextualCost[]>(
-    SWR_KEYS.llmContextualCost,
+export const useLocalEmbeddingModels = () =>
+  useSWR<LocalEmbeddingModel[]>(
+    SWR_KEYS.localEmbeddingModels,
     errorHandlingFetcher
   );
-}
 
-/** Combined connector + user-file re-index progress; polls when pollIntervalMs > 0. */
-export function useReindexProgress({
-  pollIntervalMs = 0,
-}: { pollIntervalMs?: number } = {}) {
-  return useSWR<ReindexProgress>(
+export const useReindexProgress = () =>
+  useSWR<ReindexProgress | null>(
     SWR_KEYS.reindexProgress,
     errorHandlingFetcher,
     {
-      refreshInterval: pollIntervalMs,
+      refreshInterval: 5000,
     }
   );
-}
 
-/**
- * Failed re-index units for the error modal. Fetches only when `enabled` (modal open),
- * polling 5s so a long-open modal tracks the banner's live `failed` count.
- */
-export function useReindexErrors(enabled: boolean) {
-  return useSWR<ReindexErrorRow[]>(
+export const useReindexErrors = (enabled: boolean) =>
+  useSWR<ReindexErrorRow[]>(
     enabled ? SWR_KEYS.reindexErrors : null,
     errorHandlingFetcher,
     { refreshInterval: 5000 }
   );
-}
-
-/**
- * Fetch cloud embedding providers that have credentials configured in the
- * backend.
- *
- * Returns a plain array rather than a `Map` — SWR's internal hash comparison
- * doesn't reliably detect changes between two `Map` instances, which caused
- * stale views after `mutate`. Build a lookup `Map` client-side via `useMemo`
- * if needed.
- */
-export function useConfiguredEmbeddingProviders() {
-  return useSWR<ConfiguredEmbeddingProvider[]>(
-    SWR_KEYS.embeddingProviders,
-    errorHandlingFetcher
-  );
-}
