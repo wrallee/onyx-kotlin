@@ -188,3 +188,33 @@ def test_access_log_healthcheck_filter() -> None:
     assert h_filter.filter(record_api_health) is False
     assert h_filter.filter(record_metrics) is False
     assert h_filter.filter(record_embed) is True
+
+    # Check record.args matching and that query params containing health paths are not dropped
+    record_with_args = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1", "GET", "/actuator/health/liveness", "1.1", 200),
+        None,
+    )
+    record_with_query = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1", "POST", "/search?query=/metrics", "1.1", 200),
+        None,
+    )
+    assert h_filter.filter(record_with_args) is False
+    assert h_filter.filter(record_with_query) is True
+
+    # Reconfiguring with access_log_healthchecks=True removes the filter
+    healthcheck_allowed_settings = Settings(
+        embedding_model_path=settings.embedding_model_path,
+        embedding_openvino_file=settings.embedding_openvino_file,
+        harrier_model_path=settings.harrier_model_path,
+        inference_concurrency=1,
+        torch_threads=1,
+        access_log=True,
+        access_log_healthchecks=True,
+    )
+    configure_logging(healthcheck_allowed_settings)
+    assert not any(isinstance(f, HealthCheckFilter) for f in logger.filters)
+

@@ -1,16 +1,21 @@
 package com.onyx.kotlin.api
 
 import org.slf4j.LoggerFactory
-import org.springframework.http.HttpStatus
-import org.springframework.http.ResponseEntity
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpStatus
+import org.springframework.http.HttpStatusCode
+import org.springframework.http.ProblemDetail
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.context.request.WebRequest
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler
 
 class ApiException(val status: HttpStatus, override val message: String) : RuntimeException(message)
 
 @RestControllerAdvice
-class ApiExceptionHandler {
+class ApiExceptionHandler : ResponseEntityExceptionHandler() {
     private val log = LoggerFactory.getLogger(ApiExceptionHandler::class.java)
 
     @ExceptionHandler(ApiException::class)
@@ -35,9 +40,29 @@ class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("detail" to "Request conflicts with existing data"))
     }
 
+    override fun handleExceptionInternal(
+        ex: java.lang.Exception,
+        body: Any?,
+        headers: HttpHeaders,
+        statusCode: HttpStatusCode,
+        request: WebRequest,
+    ): ResponseEntity<Any>? {
+        val detail = when (body) {
+            is ProblemDetail -> body.detail ?: body.title ?: ex.message ?: "Request failed"
+            is Map<*, *> -> (body["detail"] as? String) ?: ex.message ?: "Request failed"
+            else -> ex.message ?: "Request failed"
+        }
+        if (statusCode.is5xxServerError) {
+            log.error("Server error [{}]: {}", statusCode, detail, ex)
+        } else {
+            log.warn("Client error [{}]: {}", statusCode, detail)
+        }
+        return ResponseEntity.status(statusCode).headers(headers).body(mapOf("detail" to detail))
+    }
+
     @ExceptionHandler(Exception::class)
     fun unhandledError(error: Exception): ResponseEntity<Map<String, String>> {
         log.error("Unhandled internal server error: {}", error.message, error)
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(mapOf("detail" to (error.message ?: "Internal server error")))
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(mapOf("detail" to "Internal server error"))
     }
 }

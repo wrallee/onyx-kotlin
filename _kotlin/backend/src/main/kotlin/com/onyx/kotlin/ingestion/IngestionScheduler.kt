@@ -27,7 +27,6 @@ class IngestionScheduler(
     private val log = LoggerFactory.getLogger(IngestionScheduler::class.java)
 
     @Scheduled(fixedDelayString = "\${onyx.scheduler.poll-delay-ms:15000}")
-    @Transactional
     fun schedule() {
         if (!properties.worker.enabled) return
         try {

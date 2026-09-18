@@ -39,6 +39,9 @@ class HealthCheckFilter(logging.Filter):
     )
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3:
+            path = str(record.args[2]).split("?")[0]
+            return not any(path.startswith(prefix) for prefix in self.EXCLUDED_PREFIXES)
         msg = record.getMessage()
         return not any(prefix in msg for prefix in self.EXCLUDED_PREFIXES)
 
@@ -52,6 +55,10 @@ def configure_logging(current_settings: Settings) -> None:
         if not current_settings.access_log_healthchecks:
             if not any(isinstance(f, HealthCheckFilter) for f in access_logger.filters):
                 access_logger.addFilter(HealthCheckFilter())
+        else:
+            for f in list(access_logger.filters):
+                if isinstance(f, HealthCheckFilter):
+                    access_logger.removeFilter(f)
 
 
 REQUESTS = Counter(

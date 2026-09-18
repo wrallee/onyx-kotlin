@@ -53,9 +53,17 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
-    fun handlesUnhandledExceptionAs500() {
+    fun handlesUnhandledExceptionAs500WithoutLeakingDetails() {
         mvc.perform(get("/test/unhandled"))
             .andExpect(status().isInternalServerError)
-            .andExpect(jsonPath("$.detail").value("Unexpected database failure"))
+            .andExpect(jsonPath("$.detail").value("Internal server error"))
+    }
+
+    @Test
+    fun handlesSpringMvcClientExceptionWithAppropriateStatus() {
+        // POST to a GET-only endpoint triggers HttpRequestMethodNotSupportedException
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/test/api-exception"))
+            .andExpect(status().isMethodNotAllowed)
+            .andExpect(jsonPath("$.detail").exists())
     }
 }
