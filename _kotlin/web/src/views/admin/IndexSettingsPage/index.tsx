@@ -4,7 +4,13 @@ import { useState } from "react";
 import { mutate } from "swr";
 import { useTranslations } from "next-intl";
 import { Button, Card, Text } from "@opal/components";
-import { PageLoader, SettingsLayouts, toast } from "@opal/layouts";
+import {
+  ConfirmationModalLayout,
+  PageLoader,
+  SettingsLayouts,
+  toast,
+} from "@opal/layouts";
+import { SvgAlertCircle } from "@opal/icons";
 import { ADMIN_ROUTES } from "@/lib/admin-routes";
 import { SWR_KEYS } from "@/lib/swr-keys";
 import {
@@ -28,6 +34,7 @@ export default function IndexSettingsPage() {
     useCurrentSearchSettings();
   const { data: future } = useSecondarySearchSettings();
   const [busyModel, setBusyModel] = useState<string | null>(null);
+  const [confirmModel, setConfirmModel] = useState<string | null>(null);
 
   async function run(modelName: string, sync: boolean) {
     setBusyModel(modelName);
@@ -47,6 +54,7 @@ export default function IndexSettingsPage() {
     try {
       await cancelReindex();
       await mutate(SWR_KEYS.secondarySearchSettings);
+      await mutate(SWR_KEYS.reindexProgress);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("requestFailed"));
     }
@@ -64,7 +72,10 @@ export default function IndexSettingsPage() {
       />
       <SettingsLayouts.Body>
         {future?.reindex_started_at && (
-          <ReindexProgressBanner onCancel={cancel} />
+          <ReindexProgressBanner
+            onCancel={cancel}
+            isCanceling={Boolean(future.cancel_requested_at)}
+          />
         )}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {models?.map((model) => {
@@ -79,10 +90,14 @@ export default function IndexSettingsPage() {
               >
                 <div className="flex flex-col gap-3">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <Text font="main-ui-body">{model.display_name}</Text>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="break-all">
+                        <Text font="main-ui-body">{model.model_name}</Text>
+                      </div>
                       {isCurrent && (
-                        <Text color="status-success-05">{t("current")}</Text>
+                        <div className="shrink-0">
+                          <Text color="status-success-05">{t("current")}</Text>
+                        </div>
                       )}
                     </div>
                     <Text color="text-03">
@@ -90,18 +105,19 @@ export default function IndexSettingsPage() {
                     </Text>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {model.compatible_past_settings_id !== null && (
-                      <Button
-                        disabled={disabled || busyModel === model.model_name}
-                        onClick={() => run(model.model_name, true)}
-                      >
-                        {t("syncAndSwitch")}
-                      </Button>
-                    )}
+                    {!isCurrent &&
+                      model.compatible_past_settings_id !== null && (
+                        <Button
+                          disabled={disabled || busyModel === model.model_name}
+                          onClick={() => run(model.model_name, true)}
+                        >
+                          {t("syncAndSwitch")}
+                        </Button>
+                      )}
                     <Button
                       variant="danger"
                       disabled={disabled || busyModel === model.model_name}
-                      onClick={() => run(model.model_name, false)}
+                      onClick={() => setConfirmModel(model.model_name)}
                     >
                       {t("fullReindex")}
                     </Button>
@@ -112,6 +128,30 @@ export default function IndexSettingsPage() {
           })}
         </div>
       </SettingsLayouts.Body>
+      {confirmModel && (
+        <ConfirmationModalLayout
+          icon={SvgAlertCircle}
+          title={t("confirmFullReindexTitle")}
+          onClose={() => setConfirmModel(null)}
+          submit={
+            <Button
+              variant="danger"
+              disabled={busyModel === confirmModel}
+              onClick={() => {
+                const target = confirmModel;
+                setConfirmModel(null);
+                void run(target, false);
+              }}
+            >
+              {t("fullReindex")}
+            </Button>
+          }
+        >
+          <Text color="text-03">
+            {t("confirmFullReindexDescription", { model: confirmModel })}
+          </Text>
+        </ConfirmationModalLayout>
+      )}
     </SettingsLayouts.Root>
   );
 }
