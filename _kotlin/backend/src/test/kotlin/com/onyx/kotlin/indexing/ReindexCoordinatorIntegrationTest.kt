@@ -11,6 +11,8 @@ import com.onyx.kotlin.connector.PairStatus
 import com.onyx.kotlin.connector.ConnectorService
 import com.onyx.kotlin.connector.PairMetadataRequest
 import com.onyx.kotlin.ingestion.AttemptStatus
+import com.onyx.kotlin.ingestion.IndexedDocumentEntity
+import com.onyx.kotlin.ingestion.IndexedDocumentRepository
 import com.onyx.kotlin.ingestion.IngestionAttemptRepository
 import com.onyx.kotlin.ingestion.IngestionJobRepository
 import com.onyx.kotlin.ingestion.JobState
@@ -30,6 +32,7 @@ class ReindexCoordinatorIntegrationTest : H2IntegrationTest() {
     @Autowired private lateinit var searchSettings: SearchSettingsRepository
     @Autowired private lateinit var attempts: IngestionAttemptRepository
     @Autowired private lateinit var jobs: IngestionJobRepository
+    @Autowired private lateinit var documents: IndexedDocumentRepository
     @Autowired private lateinit var connectors: ConnectorRepository
     @Autowired private lateinit var credentials: CredentialRepository
     @Autowired private lateinit var pairs: ConnectorCredentialPairRepository
@@ -171,11 +174,62 @@ class ReindexCoordinatorIntegrationTest : H2IntegrationTest() {
         val futureId = coordinator.startFull(HARRIER)
 
         coordinator.cancel()
-        coordinator.advance()
 
         assertThat(settings.pending()).isNull()
         assertThat(jobs.findAllBySearchSettingsIdAndStateIn(futureId, listOf(JobState.CANCELED)))
             .isEmpty()
+    }
+
+    @Test
+    fun `progress reports document counts based on existing and target indices`() {
+        val pairId = createPair()
+        val currentId = settings.current().id!!
+        documents.save(
+            IndexedDocumentEntity(
+                ccPairId = pairId,
+                searchSettingsId = currentId,
+                sourceDocumentId = "doc-1",
+                contentHash = "hash-1",
+                metadata = mapper.createObjectNode(),
+            ),
+        )
+        documents.save(
+            IndexedDocumentEntity(
+                ccPairId = pairId,
+                searchSettingsId = currentId,
+                sourceDocumentId = "doc-2",
+                contentHash = "hash-2",
+                metadata = mapper.createObjectNode(),
+            ),
+        )
+
+        val futureId = coordinator.startFull(HARRIER)
+        documents.save(
+            IndexedDocumentEntity(
+                ccPairId = pairId,
+                searchSettingsId = futureId,
+                sourceDocumentId = "doc-1",
+                contentHash = "hash-1",
+                metadata = mapper.createObjectNode(),
+            ),
+        )
+
+        val progress = coordinator.progress()
+        assertThat(progress).isNotNull
+        assertThat(progress!!.totalDocuments).isEqualTo(2)
+        assertThat(progress.completedDocuments).isEqualTo(1)
+        assertThat(progress.total).isEqualTo(2)
+        assertThat(progress.completed).isEqualTo(1)
+        assertThat(progress.totalConnectors).isEqualTo(1)
+        assertThat(progress.waiting).isEqualTo(1)
+        assertThat(progress.inProgressConnectors).isEqualTo(0)
+
+        val attempt = attempts.findAllBySearchSettingsIdOrderByIdAsc(futureId).first()
+        attempt.status = AttemptStatus.IN_PROGRESS
+        attempts.save(attempt)
+
+        val updatedProgress = coordinator.progress()
+        assertThat(updatedProgress!!.inProgressConnectors).isEqualTo(1)
     }
 
     private fun completeLatest(settingsId: Long, pairId: Long? = null) {

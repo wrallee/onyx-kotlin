@@ -25,11 +25,17 @@ enum class ReindexMode { FULL, SYNC }
 
 data class ReindexProgressResponse(
     val mode: ReindexMode,
-    val total: Int,
+    val total: Long,
+    val completed: Long,
     val waiting: Int,
     val inProgress: Int,
-    val completed: Int,
     val failed: Int,
+    val totalConnectors: Int,
+    val completedConnectors: Int,
+    val inProgressConnectors: Int,
+    val failedConnectors: Int,
+    val totalDocuments: Long,
+    val completedDocuments: Long,
 )
 
 data class ReindexErrorResponse(
@@ -62,6 +68,7 @@ class ReindexCoordinator(
     @Transactional
     fun cancel() {
         settings.requestCancel()
+        advance()
     }
 
     @Transactional
@@ -91,17 +98,34 @@ class ReindexCoordinator(
     fun progress(): ReindexProgressResponse? {
         val future = settings.pending()?.takeIf { it.reindexStartedAt != null } ?: return null
         val latest = latestAttempts(future.id).values
+        val isFull = attempts.findAllBySearchSettingsIdOrderByIdAsc(future.id).firstOrNull()?.fromBeginning == true
+        val mode = if (isFull) ReindexMode.FULL else ReindexMode.SYNC
+
+        val currentId = settings.current().id
+        val currentDocCount = documents.countBySearchSettingsId(currentId)
+        val futureDocCount = documents.countBySearchSettingsId(future.id)
+        val totalDocs = if (currentDocCount > 0) maxOf(currentDocCount, futureDocCount) else futureDocCount
+        val completedDocs = futureDocCount
+
+        val totalConnectors = latest.size
+        val completedConnectors = latest.count { it.status == AttemptStatus.SUCCESS }
+        val inProgressConnectors = latest.count { it.status == AttemptStatus.IN_PROGRESS }
+        val failedConnectors = latest.count { it.status in FAILED_STATUSES }
+        val waitingConnectors = latest.count { it.status == AttemptStatus.NOT_STARTED }
+
         return ReindexProgressResponse(
-            mode = if (attempts.findAllBySearchSettingsIdOrderByIdAsc(future.id).firstOrNull()?.fromBeginning == true) {
-                ReindexMode.FULL
-            } else {
-                ReindexMode.SYNC
-            },
-            total = latest.size,
-            waiting = latest.count { it.status == AttemptStatus.NOT_STARTED },
-            inProgress = latest.count { it.status == AttemptStatus.IN_PROGRESS },
-            completed = latest.count { it.status == AttemptStatus.SUCCESS },
-            failed = latest.count { it.status in FAILED_STATUSES },
+            mode = mode,
+            total = totalDocs,
+            completed = completedDocs,
+            waiting = waitingConnectors,
+            inProgress = inProgressConnectors,
+            failed = failedConnectors,
+            totalConnectors = totalConnectors,
+            completedConnectors = completedConnectors,
+            inProgressConnectors = inProgressConnectors,
+            failedConnectors = failedConnectors,
+            totalDocuments = totalDocs,
+            completedDocuments = completedDocs,
         )
     }
 

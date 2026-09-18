@@ -8,13 +8,25 @@ import ReindexErrorsModal from "./ReindexErrorsModal";
 
 export default function ReindexProgressBanner({
   onCancel,
+  isCanceling = false,
 }: {
   onCancel: () => void;
+  isCanceling?: boolean;
 }) {
   const { data } = useReindexProgress();
   const t = useTranslations("admin.indexSettings.localModels");
   const [errorsOpen, setErrorsOpen] = useState(false);
-  const title = data?.mode === "SYNC" ? t("syncing") : t("reindexing");
+  const title = isCanceling
+    ? t("canceling")
+    : data?.mode === "SYNC"
+      ? t("syncing")
+      : t("reindexing");
+
+  const completedDocs = data?.completed_documents ?? data?.completed ?? 0;
+  const totalDocs = data?.total_documents ?? data?.total ?? 0;
+  const runningConnectors =
+    data?.in_progress_connectors ?? data?.in_progress ?? 0;
+  const failedConnectors = data?.failed_connectors ?? data?.failed ?? 0;
 
   return (
     <>
@@ -31,16 +43,16 @@ export default function ReindexProgressBanner({
               <Text color="text-03">
                 {data
                   ? t("progressSummary", {
-                      completed: data.completed,
-                      total: data.total,
-                      running: data.in_progress,
-                      failed: data.failed,
+                      completed: completedDocs,
+                      total: totalDocs,
+                      running: runningConnectors,
+                      failed: failedConnectors,
                     })
                   : t("preparing")}
               </Text>
               <ProgressBar
-                value={data?.completed ?? 0}
-                max={data?.total || 1}
+                value={completedDocs}
+                max={Math.max(totalDocs, 1)}
                 color="blue"
                 aria-label={t("reindexProgress")}
               />
@@ -50,8 +62,8 @@ export default function ReindexProgressBanner({
                 {t("errors")}
               </Button>
             )}
-            <Button variant="danger" onClick={onCancel}>
-              {t("cancel")}
+            <Button variant="danger" disabled={isCanceling} onClick={onCancel}>
+              {isCanceling ? t("canceling") : t("cancel")}
             </Button>
           </div>
         }
