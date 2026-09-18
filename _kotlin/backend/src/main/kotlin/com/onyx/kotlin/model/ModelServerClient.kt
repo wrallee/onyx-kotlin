@@ -2,6 +2,7 @@ package com.onyx.kotlin.model
 
 import com.onyx.kotlin.config.OnyxProperties
 import com.onyx.kotlin.config.buildModelServerClient
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
@@ -32,6 +33,8 @@ class ModelServerClient(
     private val properties: OnyxProperties,
     clientBuilder: RestClient.Builder,
 ) {
+    private val log = LoggerFactory.getLogger(ModelServerClient::class.java)
+
     data class ChunkEmbedding(
         val content: String,
         val embedding: List<Double>,
@@ -201,7 +204,25 @@ class ModelServerClient(
                 val retryable = error is ResourceAccessException ||
                     (error is RestClientResponseException &&
                         (error.statusCode.is5xxServerError || error.statusCode == HttpStatus.TOO_MANY_REQUESTS))
-                if (!retryable || attempt >= properties.modelServer.embedMaxRetries) throw error
+                if (!retryable || attempt >= properties.modelServer.embedMaxRetries) {
+                    log.error(
+                        "Model server call to {} failed permanently (attempt {}/{}): {}",
+                        url,
+                        attempt + 1,
+                        properties.modelServer.embedMaxRetries + 1,
+                        error.message,
+                        error,
+                    )
+                    throw error
+                }
+                log.warn(
+                    "Model server call to {} failed (attempt {}/{}): {}. Retrying in {}ms...",
+                    url,
+                    attempt + 1,
+                    properties.modelServer.embedMaxRetries + 1,
+                    error.message,
+                    backoffMillis,
+                )
                 try {
                     Thread.sleep(backoffMillis)
                 } catch (interrupted: InterruptedException) {

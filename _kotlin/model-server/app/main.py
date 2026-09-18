@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -29,6 +30,30 @@ from app.contracts import (
 )
 from app.runtime import EmbeddingRuntime
 
+
+class HealthCheckFilter(logging.Filter):
+    EXCLUDED_PREFIXES = (
+        "/actuator/health",
+        "/api/health",
+        "/metrics",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(prefix in msg for prefix in self.EXCLUDED_PREFIXES)
+
+
+def configure_logging(current_settings: Settings) -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    if not current_settings.access_log:
+        access_logger.disabled = True
+    else:
+        access_logger.disabled = False
+        if not current_settings.access_log_healthchecks:
+            if not any(isinstance(f, HealthCheckFilter) for f in access_logger.filters):
+                access_logger.addFilter(HealthCheckFilter())
+
+
 REQUESTS = Counter(
     "onyx_model_server_requests_total",
     "Model server requests",
@@ -48,10 +73,12 @@ READY = Gauge(
 settings = Settings.from_environment()
 embedding_runtime = EmbeddingRuntime(settings)
 startup_errors: dict[str, str] = {}
+configure_logging(settings)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_logging(settings)
     READY.labels("embedding").set(1)
     try:
         yield

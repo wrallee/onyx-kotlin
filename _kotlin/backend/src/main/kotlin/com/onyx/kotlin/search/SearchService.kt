@@ -6,6 +6,7 @@ import com.onyx.kotlin.indexing.IndexSettingsService
 import com.onyx.kotlin.model.ModelServerClient
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.search.SearchCandidate
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import java.time.Instant
@@ -18,6 +19,8 @@ class SearchService(
     private val documentSetRepository: DocumentSetRepository,
     private val settings: IndexSettingsService,
 ) {
+    private val log = LoggerFactory.getLogger(SearchService::class.java)
+
     @JvmOverloads
     fun search(
         query: String,
@@ -40,35 +43,40 @@ class SearchService(
         val selectedMetadata = metadataFilters.normalized()
         val runtime = settings.currentRuntime()
 
-        val ranked = when (searchType) {
-            SearchType.KEYWORD -> indexer.keywordSearch(
-                runtime.index,
-                query,
-                selectedSets,
-                limit,
-                sourceTypes,
-                timeCutoff,
-                selectedMetadata,
-            )
-            SearchType.SEMANTIC -> indexer.vectorSearch(
-                runtime.index,
-                modelServer.embedQuery(query, runtime.embedding),
-                selectedSets,
-                limit,
-                sourceTypes,
-                timeCutoff,
-                selectedMetadata,
-            )
-            SearchType.HYBRID -> indexer.hybridSearch(
-                runtime.index,
-                query,
-                modelServer.embedQuery(query, runtime.embedding),
-                selectedSets,
-                limit,
-                sourceTypes,
-                timeCutoff,
-                selectedMetadata,
-            )
+        val ranked = try {
+            when (searchType) {
+                SearchType.KEYWORD -> indexer.keywordSearch(
+                    runtime.index,
+                    query,
+                    selectedSets,
+                    limit,
+                    sourceTypes,
+                    timeCutoff,
+                    selectedMetadata,
+                )
+                SearchType.SEMANTIC -> indexer.vectorSearch(
+                    runtime.index,
+                    modelServer.embedQuery(query, runtime.embedding),
+                    selectedSets,
+                    limit,
+                    sourceTypes,
+                    timeCutoff,
+                    selectedMetadata,
+                )
+                SearchType.HYBRID -> indexer.hybridSearch(
+                    runtime.index,
+                    query,
+                    modelServer.embedQuery(query, runtime.embedding),
+                    selectedSets,
+                    limit,
+                    sourceTypes,
+                    timeCutoff,
+                    selectedMetadata,
+                )
+            }
+        } catch (error: Exception) {
+            log.error("Search execution failed for query='{}', type={}: {}", query, searchType, error.message, error)
+            throw error
         }
 
         return SearchResponse(
