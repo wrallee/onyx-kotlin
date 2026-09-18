@@ -387,4 +387,27 @@ class McpSearchToolTest {
         )
     }
 
+    @Test
+    fun `search tool returns error result when search service throws exception`() {
+        `when`(search.search("failing query", emptyList(), SearchService.DEFAULT_RESULTS, SearchType.HYBRID))
+            .thenThrow(RuntimeException("OpenSearch connection timeout"))
+
+        val result = tool.callSearch(mapOf("query" to "failing query"))
+
+        assertThat(result.isError()).isTrue()
+        val text = (result.content().single() as McpSchema.TextContent).text()
+        assertThat(text).isEqualTo("OpenSearch connection timeout")
+    }
+
+    @Test
+    fun `context tool returns error result when search service throws exception`() {
+        `when`(search.getDocumentContext("broken-chunk", SearchService.DEFAULT_CONTEXT_CHUNKS, SearchService.DEFAULT_CONTEXT_CHUNKS))
+            .thenThrow(IllegalStateException("Chunk not found"))
+
+        val result = tool.callGetDocumentContext(mapOf("id" to "broken-chunk"))
+
+        assertThat(result.isError()).isTrue()
+        val text = (result.content().single() as McpSchema.TextContent).text()
+        assertThat(text).isEqualTo("Chunk not found")
+    }
 }

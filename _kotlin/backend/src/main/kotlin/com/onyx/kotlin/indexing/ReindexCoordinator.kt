@@ -14,6 +14,7 @@ import com.onyx.kotlin.ingestion.IngestionCommandService
 import com.onyx.kotlin.ingestion.IngestionJobRepository
 import com.onyx.kotlin.ingestion.JobState
 import com.onyx.kotlin.opensearch.OpenSearchIndexer
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -53,6 +54,8 @@ class ReindexCoordinator(
     private val documentSetSync: DocumentSetIndexSyncService,
     private val jdbc: JdbcTemplate,
 ) {
+    private val log = LoggerFactory.getLogger(ReindexCoordinator::class.java)
+
     @Transactional
     fun startFull(modelName: String): Long = start(modelName, ReindexMode.FULL)
 
@@ -71,6 +74,7 @@ class ReindexCoordinator(
         if (failed.status !in FAILED_STATUSES) {
             throw ApiException(HttpStatus.CONFLICT, "The connector has no failed reindex attempt")
         }
+        log.info("Retrying reindex for pairId={}, searchSettingsId={}", pairId, future.id)
         commands.enqueuePair(
             pairId = pairId,
             searchSettingsId = future.id,
@@ -129,7 +133,12 @@ class ReindexCoordinator(
 
     @Scheduled(fixedDelayString = "\${onyx.scheduler.poll-delay-ms:15000}")
     fun advanceScheduled() {
-        if (properties.worker.enabled) advance()
+        if (!properties.worker.enabled) return
+        try {
+            advance()
+        } catch (error: Exception) {
+            log.error("Unhandled error in ReindexCoordinator: {}", error.message, error)
+        }
     }
 
     @Transactional
@@ -144,6 +153,7 @@ class ReindexCoordinator(
             val target = settings.runtime(future.id).index
             indexer.deleteIndex(target)
             settings.deleteFuture(future.id)
+            log.info("Reindex searchSettingsId={} cancelled and cleaned up", future.id)
             return
         }
 
@@ -152,6 +162,8 @@ class ReindexCoordinator(
         if (pairIds.any { it !in latest }) return
         val selected = pairIds.map(latest::getValue)
         if (selected.any { it.status in FAILED_STATUSES }) {
+            val failedPairs = selected.filter { it.status in FAILED_STATUSES }.map { "${it.ccPairId}: ${it.errorMessage}" }
+            log.warn("Reindex searchSettingsId={} has failed attempts: {}", future.id, failedPairs)
             if (future.cutoverAt != null) settings.setCutover(future.id, null)
             return
         }
@@ -165,6 +177,7 @@ class ReindexCoordinator(
             cancelQueued(currentJobs)
             if (currentJobs.any { it.state == JobState.RUNNING }) return
             val cutover = databaseNow()
+            log.info("Reindex searchSettingsId={} setting cutover to {}", future.id, cutover)
             settings.setCutover(future.id, cutover)
             pairIds.forEach { commands.enqueuePair(it, future.id, false, pollRangeEnd = cutover) }
             return
@@ -173,10 +186,12 @@ class ReindexCoordinator(
         if (selected.all { it.pruneOnly }) {
             val runtime = settings.runtime(future.id)
             if (pairIds.any { !documentSetSync.syncPair(it, runtime) }) return
+            log.info("Reindex searchSettingsId={} activating new index", future.id)
             settings.activateFuture(future.id)
             pairIds.filterNot { pairs.findById(it).orElseThrow().status == PairStatus.PAUSED }
                 .forEach { commands.enqueuePair(it, future.id, false) }
         } else {
+            log.info("Reindex searchSettingsId={} enqueuing prune-only pass", future.id)
             pairIds.forEach { commands.enqueuePair(it, future.id, false, pruneOnly = true) }
         }
     }
@@ -184,6 +199,7 @@ class ReindexCoordinator(
     private fun start(modelName: String, mode: ReindexMode): Long {
         val startedAt = databaseNow()
         val future = settings.beginFuture(modelName, mode == ReindexMode.SYNC, startedAt)
+        log.info("Starting reindex: mode={}, model={}, settingsId={}", mode, modelName, future.settingsId)
         if (mode == ReindexMode.FULL) {
             clearTargetState(future.settingsId)
             indexer.resetIndex(future.index)

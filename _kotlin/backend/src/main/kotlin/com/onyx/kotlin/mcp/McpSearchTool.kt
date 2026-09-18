@@ -9,6 +9,7 @@ import com.onyx.kotlin.search.SearchMetadataFilters
 import com.onyx.kotlin.search.SearchService
 import com.onyx.kotlin.search.SearchType
 import io.modelcontextprotocol.spec.McpSchema
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.time.Instant
@@ -18,6 +19,8 @@ class McpSearchTool(
     private val search: SearchService,
     private val mapper: ObjectMapper,
 ) {
+    private val log = LoggerFactory.getLogger(McpSearchTool::class.java)
+
     fun searchDefinition(): McpSchema.Tool =
         McpSchema.Tool.builder(TOOL_SEARCH_INDEXED_DOCUMENTS, SEARCH_INPUT_SCHEMA)
             .description(SEARCH_TOOL_DESCRIPTION)
@@ -59,6 +62,14 @@ class McpSearchTool(
             documentTypes = parseStrings(arguments["document_types"], "document_types"),
         )
 
+        log.info(
+            "MCP search request: query='{}', sets={}, limit={}, type={}",
+            query,
+            documentSets,
+            limit,
+            searchType,
+        )
+
         val response = search.search(
             query,
             documentSets,
@@ -68,10 +79,12 @@ class McpSearchTool(
             timeCutoff,
             metadataFilters,
         )
+        log.info("MCP search succeeded for query='{}': {} results", query, response.results.size)
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
             .build()
     } catch (error: Exception) {
+        log.error("MCP search failed: query='{}': {}", arguments["query"], error.message, error)
         McpSchema.CallToolResult.builder()
             .addTextContent(error.message ?: "Search failed")
             .isError(true)
@@ -84,11 +97,13 @@ class McpSearchTool(
         val chunksAbove = (arguments["chunks_above"] as? Number)?.toInt() ?: SearchService.DEFAULT_CONTEXT_CHUNKS
         val chunksBelow = (arguments["chunks_below"] as? Number)?.toInt() ?: SearchService.DEFAULT_CONTEXT_CHUNKS
 
+        log.info("MCP getDocumentContext request: id='{}', above={}, below={}", id, chunksAbove, chunksBelow)
         val response = search.getDocumentContext(id, chunksAbove, chunksBelow)
         McpSchema.CallToolResult.builder()
             .addTextContent(mapper.writeValueAsString(response))
             .build()
     } catch (error: Exception) {
+        log.error("MCP getDocumentContext failed for id='{}': {}", arguments["id"], error.message, error)
         McpSchema.CallToolResult.builder()
             .addTextContent(error.message ?: "Failed to fetch document context")
             .isError(true)
@@ -167,6 +182,7 @@ class McpSearchTool(
             .addTextContent(mapper.writeValueAsString(response))
             .build()
     } catch (error: Exception) {
+        log.error("MCP weighted RRF fusion failed: {}", error.message, error)
         McpSchema.CallToolResult.builder()
             .addTextContent(error.message ?: "Weighted RRF failed")
             .isError(true)

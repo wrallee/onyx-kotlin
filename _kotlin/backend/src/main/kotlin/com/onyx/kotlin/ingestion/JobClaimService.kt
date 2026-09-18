@@ -5,6 +5,7 @@ import com.onyx.kotlin.connector.ConnectorCredentialPairEntity
 import com.onyx.kotlin.connector.ConnectorCredentialPairRepository
 import com.onyx.kotlin.connector.PairStatus
 import com.onyx.kotlin.indexing.IndexSettingsService
+import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -21,6 +22,8 @@ class JobClaimService(
     private val properties: OnyxProperties,
     private val indexSettings: IndexSettingsService,
 ) {
+    private val log = LoggerFactory.getLogger(JobClaimService::class.java)
+
     @Transactional
     fun claimNext(now: Instant = Instant.now()): IngestionClaim? = jobs
         .findClaimableIds(now, PageRequest.of(0, CLAIM_CANDIDATE_LIMIT))
@@ -95,6 +98,7 @@ class JobClaimService(
     fun cancel(claim: IngestionClaim): Boolean {
         val ownership = ownership(claim) ?: return false
         val attempt = attempts.findById(claim.attemptId).orElse(null) ?: return false
+        log.info("Job {} (attempt {}, pair {}) marked CANCELED", claim.jobId, claim.attemptId, claim.pairId)
         attempt.status = AttemptStatus.CANCELED
         attempts.save(attempt)
         ownership.job.state = JobState.CANCELED
@@ -113,6 +117,14 @@ class JobClaimService(
     ): Boolean {
         val ownership = ownership(claim) ?: return false
         val attempt = attempts.findById(claim.attemptId).orElse(null) ?: return false
+        log.error(
+            "Job {} (attempt {}, pair {}) marked FAILED: {}",
+            claim.jobId,
+            claim.attemptId,
+            claim.pairId,
+            error.message,
+            error,
+        )
         attempt.status = AttemptStatus.FAILED
         attempt.errorMessage = error.message?.take(1000) ?: "Ingestion failed"
         attempt.fullExceptionTrace = error.stackTraceToString().take(16000)
