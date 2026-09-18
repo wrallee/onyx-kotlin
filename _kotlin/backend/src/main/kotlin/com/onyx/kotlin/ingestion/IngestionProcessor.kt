@@ -254,7 +254,7 @@ class IngestionProcessor(
             )
         } catch (_: ConnectorPausedException) {
             claims.cancel(claim)
-            reindexCoordinator.getIfAvailable()?.advance()
+            runCatching { reindexCoordinator.getIfAvailable()?.advance() }
         } catch (_: StaleIngestionClaimException) {
             return
         } catch (error: Exception) {

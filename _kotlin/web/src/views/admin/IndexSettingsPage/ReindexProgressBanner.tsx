@@ -57,7 +57,7 @@ export default function ReindexProgressBanner({
                 aria-label={t("reindexProgress")}
               />
             </div>
-            {(data?.failed ?? 0) > 0 && (
+            {failedConnectors > 0 && (
               <Button variant="danger" onClick={() => setErrorsOpen(true)}>
                 {t("errors")}
               </Button>

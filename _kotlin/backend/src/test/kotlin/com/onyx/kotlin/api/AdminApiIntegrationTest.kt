@@ -460,7 +460,7 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
     @Test
     fun indexingStatusIgnoresFutureReindexAttempts() {
         val pairId = createPairWithoutQueuedAttempt()
-        val currentId = indexSettings.current().id!!
+        val currentId = indexSettings.current().id
         val pastSuccess = Instant.parse("2026-08-31T01:00:00Z")
         saveAttempt(pairId, AttemptStatus.SUCCESS, pastSuccess, currentId)
 

@@ -98,7 +98,7 @@ class ReindexCoordinator(
     fun progress(): ReindexProgressResponse? {
         val future = settings.pending()?.takeIf { it.reindexStartedAt != null } ?: return null
         val latest = latestAttempts(future.id).values
-        val isFull = attempts.findAllBySearchSettingsIdOrderByIdAsc(future.id).firstOrNull()?.fromBeginning == true
+        val isFull = latest.firstOrNull()?.fromBeginning == true
         val mode = if (isFull) ReindexMode.FULL else ReindexMode.SYNC
 
         val currentId = settings.current().id

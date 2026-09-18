@@ -183,7 +183,7 @@ class ReindexCoordinatorIntegrationTest : H2IntegrationTest() {
     @Test
     fun `progress reports document counts based on existing and target indices`() {
         val pairId = createPair()
-        val currentId = settings.current().id!!
+        val currentId = settings.current().id
         documents.save(
             IndexedDocumentEntity(
                 ccPairId = pairId,

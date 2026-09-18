@@ -116,7 +116,10 @@ class IngestionJobEntity(
 )
 
 @Entity
-@Table(name = "indexed_documents")
+@Table(
+    name = "indexed_documents",
+    indexes = [Index(name = "idx_indexed_documents_search_settings", columnList = "search_settings_id")],
+)
 class IndexedDocumentEntity(
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null,

@@ -153,13 +153,13 @@ describe("IndexSettingsPage", () => {
     render(<IndexSettingsPage />);
 
     const buttons = screen.getAllByRole("button");
-    const harrierFullReindex = buttons.find(
+    const graniteFullReindex = buttons.find(
       (b) =>
         b.textContent?.includes("Full Reindex") && !b.hasAttribute("disabled")
     );
-    expect(harrierFullReindex).toBeDefined();
+    expect(graniteFullReindex).toBeDefined();
 
-    await user.click(harrierFullReindex!);
+    await user.click(graniteFullReindex!);
 
     expect(mockStartFullReindex).not.toHaveBeenCalled();
 
