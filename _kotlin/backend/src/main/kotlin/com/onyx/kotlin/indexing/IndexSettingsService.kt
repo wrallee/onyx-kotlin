@@ -165,18 +165,26 @@ class IndexSettingsService(
         .executionConfig()
 
     @Transactional(readOnly = true)
-    fun localModels(statuses: JsonNode): List<LocalEmbeddingModelResponse> = models.all().map { model ->
-        val status = statuses.path("models").path(model.modelName).path("code").asString("UNAVAILABLE")
-        LocalEmbeddingModelResponse(
-            modelName = model.modelName,
-            displayName = model.displayName,
-            dimension = model.dimension,
-            available = status in AVAILABLE_MODEL_STATUSES,
-            status = status,
-            compatiblePastSettingsId = searchSettings
-                .findFirstByModelNameAndStatusOrderByIdAsc(model.modelName, IndexModelStatus.PAST)
-                ?.id,
-        )
+    fun localModels(statuses: JsonNode): List<LocalEmbeddingModelResponse> {
+        val currentModel = searchSettings.findByStatus(IndexModelStatus.PRESENT)?.modelName
+        return models.all().map { model ->
+            val status = statuses.path("models").path(model.modelName).path("code").asString("UNAVAILABLE")
+            val isCurrent = currentModel == model.modelName
+            LocalEmbeddingModelResponse(
+                modelName = model.modelName,
+                displayName = model.displayName,
+                dimension = model.dimension,
+                available = status in AVAILABLE_MODEL_STATUSES,
+                status = status,
+                compatiblePastSettingsId = if (isCurrent) {
+                    null
+                } else {
+                    searchSettings
+                        .findFirstByModelNameAndStatusOrderByIdAsc(model.modelName, IndexModelStatus.PAST)
+                        ?.id
+                },
+            )
+        }
     }
 
     private fun currentEntity(): SearchSettingsEntity = searchSettings.findByStatus(IndexModelStatus.PRESENT)

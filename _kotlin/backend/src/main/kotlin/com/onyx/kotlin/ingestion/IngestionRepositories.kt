@@ -24,6 +24,11 @@ interface IngestionAttemptRepository : JpaRepository<IngestionAttemptEntity, Lon
         ccPairId: Long,
         statuses: Collection<AttemptStatus>,
     ): IngestionAttemptEntity?
+    fun findFirstByCcPairIdAndSearchSettingsIdAndStatusInOrderByTimeStartedDescIdDesc(
+        ccPairId: Long,
+        searchSettingsId: Long,
+        statuses: Collection<AttemptStatus>,
+    ): IngestionAttemptEntity?
     fun findFirstByCcPairIdAndPruneOnlyFalseOrderByTimeUpdatedDescIdDesc(ccPairId: Long): IngestionAttemptEntity?
     @Transactional
     fun deleteAllBySearchSettingsId(searchSettingsId: Long)
@@ -106,6 +111,7 @@ interface IndexedDocumentRepository : JpaRepository<IndexedDocumentEntity, Long>
         sourceDocumentId: String,
     ): IndexedDocumentEntity?
     fun countByCcPairIdAndSearchSettingsId(ccPairId: Long, searchSettingsId: Long): Long
+    fun countBySearchSettingsId(searchSettingsId: Long): Long
     fun findByCcPairIdAndSourceDocumentId(ccPairId: Long, sourceDocumentId: String): IndexedDocumentEntity?
     fun findAllByCcPairId(ccPairId: Long): List<IndexedDocumentEntity>
     fun findAllByCcPairIdAndSourceDocumentIdIn(

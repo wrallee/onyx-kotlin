@@ -3,6 +3,10 @@ spring:
     name: onyx-foss-kotlin-backend
   jackson:
     property-naming-strategy: SNAKE_CASE
+  task:
+    scheduling:
+      pool:
+        size: ${SPRING_TASK_SCHEDULING_POOL_SIZE:4}
   ai:
     vectorstore:
       opensearch:

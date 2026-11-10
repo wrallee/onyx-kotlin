@@ -111,10 +111,16 @@ class IngestionQueryService(
 
     private fun indexingRow(pair: ConnectorCredentialPairEntity, currentSettingsId: Long): Map<String, Any?> {
         val pairId = requireNotNull(pair.id)
-        val latest = attempts.findFirstByCcPairIdOrderByIdDesc(pairId)
-        val lastSuccessful = attempts.findFirstByCcPairIdAndStatusInOrderByTimeStartedDescIdDesc(
+        val latest = attempts.findFirstByCcPairIdAndSearchSettingsIdOrderByIdDesc(pairId, currentSettingsId)
+        val lastSuccessful = attempts.findFirstByCcPairIdAndSearchSettingsIdAndStatusInOrderByTimeStartedDescIdDesc(
             pairId,
+            currentSettingsId,
             listOf(AttemptStatus.SUCCESS, AttemptStatus.COMPLETED_WITH_ERRORS),
+        )
+        val lastFinished = attempts.findFirstByCcPairIdAndSearchSettingsIdAndStatusInOrderByTimeStartedDescIdDesc(
+            pairId,
+            currentSettingsId,
+            FINISHED_STATUSES,
         )
         return mapOf(
             "cc_pair_id" to pairId,
@@ -124,13 +130,22 @@ class IngestionQueryService(
             "cc_pair_status" to pair.status.name,
             "in_progress" to (latest?.status == AttemptStatus.IN_PROGRESS),
             "in_repeated_error_state" to pair.inRepeatedErrorState,
-            "last_finished_status" to latest?.status?.takeIf { it != AttemptStatus.IN_PROGRESS }?.value,
+            "last_finished_status" to lastFinished?.status?.value,
             "last_status" to latest?.status?.value,
             "last_success" to lastSuccessful?.timeStarted,
             "is_editable" to true,
             "permissions" to mapOf("edit" to true, "delete" to true, "manage" to true),
             "docs_indexed" to documents.countByCcPairIdAndSearchSettingsId(pairId, currentSettingsId),
             "latest_index_attempt_docs_indexed" to latest?.totalDocsIndexed,
+        )
+    }
+
+    private companion object {
+        val FINISHED_STATUSES = listOf(
+            AttemptStatus.SUCCESS,
+            AttemptStatus.COMPLETED_WITH_ERRORS,
+            AttemptStatus.FAILED,
+            AttemptStatus.CANCELED,
         )
     }
 

@@ -458,6 +458,29 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
+    fun indexingStatusIgnoresFutureReindexAttempts() {
+        val pairId = createPairWithoutQueuedAttempt()
+        val currentId = indexSettings.current().id
+        val pastSuccess = Instant.parse("2026-08-31T01:00:00Z")
+        saveAttempt(pairId, AttemptStatus.SUCCESS, pastSuccess, currentId)
+
+        val futureSettings = searchSettings.save(
+            SearchSettingsEntity(
+                modelName = "microsoft/harrier-oss-v1-0.6b",
+                indexName = "onyx-kotlin-chunks-harrier",
+                status = IndexModelStatus.FUTURE,
+                singletonMarker = null,
+            ),
+        )
+        saveAttempt(pairId, AttemptStatus.NOT_STARTED, Instant.parse("2026-08-31T02:00:00Z"), futureSettings.id!!)
+
+        val listing = postJson("/manage/admin/connector/indexing-status", emptyMap<String, Any>()).body.first()
+        val statusRow = listing.path("indexing_statuses").first { it.path("cc_pair_id").asLong() == pairId }
+
+        assertThat(statusRow.path("last_status").asString()).isEqualTo("success")
+    }
+
+    @Test
     fun paginationRejectsNegativePageAndNonPositivePageSize() {
         val connectorId = createConnector("github")
         val credentialId = createCredential("github", "secret-token")
@@ -741,9 +764,9 @@ class AdminApiIntegrationTest : H2IntegrationTest() {
         return pairId
     }
 
-    private fun saveAttempt(pairId: Long, status: AttemptStatus, started: Instant) {
+    private fun saveAttempt(pairId: Long, status: AttemptStatus, started: Instant, searchSettingsId: Long = 1) {
         val attempt = attempts.save(
-            IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = 1, status = status, timeStarted = started),
+            IngestionAttemptEntity(ccPairId = pairId, searchSettingsId = searchSettingsId, status = status, timeStarted = started),
         )
         jdbc.update(
             "UPDATE ingestion_attempts SET time_started = ?, time_updated = ? WHERE id = ?",

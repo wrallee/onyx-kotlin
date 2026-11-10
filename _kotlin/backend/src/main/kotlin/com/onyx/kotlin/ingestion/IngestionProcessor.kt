@@ -43,6 +43,7 @@ class IngestionProcessor(
     private val claims: JobClaimService,
     private val externalWrites: PairExternalWriteFence,
     private val indexSettings: IndexSettingsService,
+    private val reindexCoordinator: org.springframework.beans.factory.ObjectProvider<com.onyx.kotlin.indexing.ReindexCoordinator>,
 ) {
     fun process(jobId: Long) {
         claims.claimJob(jobId)?.let(::process)
@@ -116,6 +117,7 @@ class IngestionProcessor(
                 val newDocumentIds = enumeration.registerDocuments(attemptId, batch.documents.map(SourceDocument::id))
                 val processedInBatch = mutableSetOf<String>()
                 batch.documents.forEach { document ->
+                    stopIfStopped(claim)
                     if (document.id !in newDocumentIds || !processedInBatch.add(document.id)) return@forEach
                     if (attempt.pruneOnly) return@forEach
                     if (document.title.isBlank() && document.content.isBlank()) {
@@ -252,6 +254,7 @@ class IngestionProcessor(
             )
         } catch (_: ConnectorPausedException) {
             claims.cancel(claim)
+            runCatching { reindexCoordinator.getIfAvailable()?.advance() }
         } catch (_: StaleIngestionClaimException) {
             return
         } catch (error: Exception) {

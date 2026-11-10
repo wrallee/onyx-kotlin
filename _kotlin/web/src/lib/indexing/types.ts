@@ -24,6 +24,12 @@ export interface ReindexProgress {
   in_progress: number;
   completed: number;
   failed: number;
+  total_connectors?: number;
+  completed_connectors?: number;
+  in_progress_connectors?: number;
+  failed_connectors?: number;
+  total_documents?: number;
+  completed_documents?: number;
 }
 
 export interface ReindexErrorRow {

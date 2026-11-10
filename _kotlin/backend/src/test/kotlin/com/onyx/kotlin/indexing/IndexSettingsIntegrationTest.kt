@@ -74,6 +74,40 @@ class IndexSettingsIntegrationTest : H2IntegrationTest() {
     }
 
     @Test
+    fun `compatiblePastSettingsId is null for current model and available for past models`() {
+        `when`(modelServer.modelStatus()).thenReturn(
+            registryStatus(
+                "ibm-granite/granite-embedding-311m-multilingual-r2" to "READY",
+                "microsoft/harrier-oss-v1-0.6b" to "READY",
+            ),
+        )
+        settings.current()
+        searchSettings.save(
+            SearchSettingsEntity(
+                modelName = "ibm-granite/granite-embedding-311m-multilingual-r2",
+                indexName = "onyx-granite-past",
+                status = IndexModelStatus.PAST,
+                singletonMarker = null,
+            ),
+        )
+        val pastHarrier = searchSettings.save(
+            SearchSettingsEntity(
+                modelName = "microsoft/harrier-oss-v1-0.6b",
+                indexName = "onyx-harrier-past",
+                status = IndexModelStatus.PAST,
+                singletonMarker = null,
+            ),
+        )
+
+        val models = settings.localModels(modelServer.modelStatus())
+        val granite = models.first { it.modelName == "ibm-granite/granite-embedding-311m-multilingual-r2" }
+        val harrier = models.first { it.modelName == "microsoft/harrier-oss-v1-0.6b" }
+
+        assertThat(granite.compatiblePastSettingsId).isNull()
+        assertThat(harrier.compatiblePastSettingsId).isEqualTo(pastHarrier.id)
+    }
+
+    @Test
     fun `runtime reads do not take the migration lock`() {
         settings.current()
         clearInvocations(indexLock)
