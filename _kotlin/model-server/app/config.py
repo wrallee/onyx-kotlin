@@ -19,6 +19,8 @@ class Settings:
     harrier_model_path: Path
     inference_concurrency: int
     torch_threads: int
+    access_log: bool = False
+    access_log_healthchecks: bool = False
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -40,4 +42,6 @@ class Settings:
                 1, int(os.getenv("MODEL_INFERENCE_CONCURRENCY", "1"))
             ),
             torch_threads=max(1, int(os.getenv("TORCH_NUM_THREADS", "4"))),
+            access_log=_boolean("MODEL_SERVER_ACCESS_LOG", False),
+            access_log_healthchecks=_boolean("MODEL_SERVER_ACCESS_LOG_HEALTHCHECKS", False),
         )

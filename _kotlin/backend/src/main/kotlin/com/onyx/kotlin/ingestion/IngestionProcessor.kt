@@ -17,6 +17,7 @@ import com.onyx.kotlin.opensearch.OpenSearchIndexer
 import com.onyx.kotlin.search.IndexedMetadata
 import com.onyx.kotlin.opensearch.PairExternalWriteFence
 import com.onyx.kotlin.connector.ConnectorService
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -44,6 +45,8 @@ class IngestionProcessor(
     private val externalWrites: PairExternalWriteFence,
     private val indexSettings: IndexSettingsService,
 ) {
+    private val log = LoggerFactory.getLogger(IngestionProcessor::class.java)
+
     fun process(jobId: Long) {
         claims.claimJob(jobId)?.let(::process)
     }
@@ -52,6 +55,13 @@ class IngestionProcessor(
         if (!claims.start(claim)) return
         val attempt = attempts.findById(claim.attemptId).orElse(null) ?: return
         val pair = pairs.findById(claim.pairId).orElse(null) ?: return
+        log.info(
+            "Starting ingestion processing for attemptId={}, pairId={}, jobId={}, searchSettingsId={}",
+            claim.attemptId,
+            claim.pairId,
+            claim.jobId,
+            claim.searchSettingsId,
+        )
         var refreshFreq: Long? = null
         try {
             val runtime = attempt.searchSettingsId.takeIf { it != 0L }
@@ -201,6 +211,7 @@ class IngestionProcessor(
                 }
                 if (batch.failures.isNotEmpty()) {
                     hasFailures = true
+                    log.warn("Ingestion attemptId={} batch had {} failures", attemptId, batch.failures.size)
                     errors.saveAll(batch.failures.map { failure -> failure.toEntity(requireNotNull(attempt.id)) })
                 }
                 if (!attempt.pruneOnly) {
@@ -242,19 +253,38 @@ class IngestionProcessor(
                 errors.saveAll(resolvedEntityErrors)
             }
             renew(claim)
+            val finalStatus = if (hasFailures) AttemptStatus.COMPLETED_WITH_ERRORS else AttemptStatus.SUCCESS
+            log.info(
+                "Ingestion completed for attemptId={}, pairId={}: status={}, newDocs={}, totalDocs={}, removedDocs={}",
+                claim.attemptId,
+                claim.pairId,
+                finalStatus,
+                newDocuments,
+                totalDocuments,
+                attempt.docsRemovedFromIndex,
+            )
             claims.complete(
                 claim = claim,
-                status = if (hasFailures) AttemptStatus.COMPLETED_WITH_ERRORS else AttemptStatus.SUCCESS,
+                status = finalStatus,
                 newDocuments = newDocuments,
                 totalDocuments = totalDocuments,
                 removedDocuments = attempt.docsRemovedFromIndex,
                 updateLastPrunedAt = (attempt.fromBeginning || attempt.pruneOnly) && completeEnumeration,
             )
         } catch (_: ConnectorPausedException) {
+            log.info("Ingestion cancelled for attemptId={}, pairId={}: connector paused", claim.attemptId, claim.pairId)
             claims.cancel(claim)
         } catch (_: StaleIngestionClaimException) {
+            log.warn("Ingestion aborted for attemptId={}, pairId={}: claim became stale", claim.attemptId, claim.pairId)
             return
         } catch (error: Exception) {
+            log.error(
+                "Ingestion failed for attemptId={}, pairId={}: {}",
+                claim.attemptId,
+                claim.pairId,
+                error.message,
+                error,
+            )
             claims.fail(claim, error, refreshFreq)
         }
     }

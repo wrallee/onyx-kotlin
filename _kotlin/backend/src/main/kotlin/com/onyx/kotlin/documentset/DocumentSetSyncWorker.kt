@@ -8,6 +8,7 @@ import com.onyx.kotlin.documentset.DocumentSetSyncOutboxRepository
 import com.onyx.kotlin.documentset.DocumentSetSyncStatus
 import com.onyx.kotlin.documentset.DocumentSetRepository
 import com.onyx.kotlin.indexing.IndexSettingsService
+import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
@@ -80,9 +81,16 @@ class DocumentSetSyncWorker(
     private val settings: IndexSettingsService,
     private val indexSync: DocumentSetIndexSyncService,
 ) {
+    private val log = LoggerFactory.getLogger(DocumentSetSyncWorker::class.java)
+
     @Scheduled(fixedDelayString = "\${onyx.worker.poll-delay-ms:5000}")
     fun work() {
-        if (properties.worker.enabled) processNext()
+        if (!properties.worker.enabled) return
+        try {
+            processNext()
+        } catch (error: Exception) {
+            log.error("Unhandled error in DocumentSetSyncWorker: {}", error.message, error)
+        }
     }
 
     fun processNext(): Boolean {
@@ -91,13 +99,22 @@ class DocumentSetSyncWorker(
     }
 
     fun process(claim: DocumentSetSyncClaim): Boolean {
+        log.info("Processing document set sync outboxId={}, pairs={}", claim.id, claim.ccPairIds)
         try {
             claim.ccPairIds.forEach { pairId ->
-                if (!claims.renew(claim.id, claim.token)) return true
-                if (!indexSync.syncPair(pairId, settings.currentRuntime()) { claims.renew(claim.id, claim.token) }) return true
+                if (!claims.renew(claim.id, claim.token)) {
+                    log.warn("Document set sync aborted for outboxId={}: lease renew failed", claim.id)
+                    return true
+                }
+                if (!indexSync.syncPair(pairId, settings.currentRuntime()) { claims.renew(claim.id, claim.token) }) {
+                    log.warn("Document set sync stopped for outboxId={}, pairId={}", claim.id, pairId)
+                    return true
+                }
             }
+            log.info("Document set sync completed for outboxId={}", claim.id)
             claims.complete(claim.id, claim.token)
         } catch (error: Exception) {
+            log.error("Document set sync failed for outboxId={}: {}", claim.id, error.message, error)
             claims.retry(claim.id, claim.token, error)
         }
         return true

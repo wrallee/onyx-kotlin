@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from app.contracts import EmbedRequest
-from app.main import app, embedding_runtime
+from app.main import app, embedding_runtime, settings
 from app.runtime import GRANITE_MODEL_NAME
 from fastapi.testclient import TestClient
 
@@ -128,3 +128,93 @@ def test_chunk_contract_exposes_prepared_embedding_text(
             "token_count": 12,
         }
     ]
+
+
+def test_access_log_disabled_by_default() -> None:
+    import logging
+    from app.config import Settings
+    from app.main import configure_logging
+
+    default_settings = Settings(
+        embedding_model_path=settings.embedding_model_path,
+        embedding_openvino_file=settings.embedding_openvino_file,
+        harrier_model_path=settings.harrier_model_path,
+        inference_concurrency=1,
+        torch_threads=1,
+        access_log=False,
+    )
+    configure_logging(default_settings)
+    assert logging.getLogger("uvicorn.access").disabled is True
+
+
+def test_access_log_healthcheck_filter() -> None:
+    import logging
+    from app.config import Settings
+    from app.main import HealthCheckFilter, configure_logging
+
+    enabled_settings = Settings(
+        embedding_model_path=settings.embedding_model_path,
+        embedding_openvino_file=settings.embedding_openvino_file,
+        harrier_model_path=settings.harrier_model_path,
+        inference_concurrency=1,
+        torch_threads=1,
+        access_log=True,
+        access_log_healthchecks=False,
+    )
+    configure_logging(enabled_settings)
+    logger = logging.getLogger("uvicorn.access")
+    assert logger.disabled is False
+    assert any(isinstance(f, HealthCheckFilter) for f in logger.filters)
+
+    h_filter = next(f for f in logger.filters if isinstance(f, HealthCheckFilter))
+    record_health = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '127.0.0.1 - "GET /actuator/health/readiness HTTP/1.1" 200', (), None
+    )
+    record_api_health = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '127.0.0.1 - "GET /api/health HTTP/1.1" 200', (), None
+    )
+    record_metrics = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '127.0.0.1 - "GET /metrics HTTP/1.1" 200', (), None
+    )
+    record_embed = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '127.0.0.1 - "POST /encoder/bi-encoder-embed HTTP/1.1" 200', (), None
+    )
+
+    assert h_filter.filter(record_health) is False
+    assert h_filter.filter(record_api_health) is False
+    assert h_filter.filter(record_metrics) is False
+    assert h_filter.filter(record_embed) is True
+
+    # Check record.args matching and that query params containing health paths are not dropped
+    record_with_args = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1", "GET", "/actuator/health/liveness", "1.1", 200),
+        None,
+    )
+    record_with_query = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1", "POST", "/search?query=/metrics", "1.1", 200),
+        None,
+    )
+    assert h_filter.filter(record_with_args) is False
+    assert h_filter.filter(record_with_query) is True
+
+    # Reconfiguring with access_log_healthchecks=True removes the filter
+    healthcheck_allowed_settings = Settings(
+        embedding_model_path=settings.embedding_model_path,
+        embedding_openvino_file=settings.embedding_openvino_file,
+        harrier_model_path=settings.harrier_model_path,
+        inference_concurrency=1,
+        torch_threads=1,
+        access_log=True,
+        access_log_healthchecks=True,
+    )
+    configure_logging(healthcheck_allowed_settings)
+    assert not any(isinstance(f, HealthCheckFilter) for f in logger.filters)
+

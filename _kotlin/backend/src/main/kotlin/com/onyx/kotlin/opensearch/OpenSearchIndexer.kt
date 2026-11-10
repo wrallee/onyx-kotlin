@@ -22,6 +22,7 @@ import org.opensearch.client.opensearch.core.SearchRequest as OpenSearchSearchRe
 import org.opensearch.client.opensearch.generic.Requests
 import org.opensearch.client.opensearch.generic.Response
 import org.opensearch.client.transport.httpclient5.ResponseException
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
@@ -41,6 +42,7 @@ class OpenSearchIndexer(
     private val searchProperties: SearchProperties = SearchProperties(),
     private val pipelineRegistry: HybridNormalizationPipelineRegistry? = null,
 ) {
+    private val log = LoggerFactory.getLogger(OpenSearchIndexer::class.java)
     constructor(
         properties: OpenSearchVectorStoreProperties,
         clientBuilder: Any?,
@@ -621,8 +623,10 @@ class OpenSearchIndexer(
         }
     }
 
-    private fun openSearchWriteError(operation: String, status: Int, body: String) =
-        IllegalStateException("OpenSearch $operation failed with status $status: $body")
+    private fun openSearchWriteError(operation: String, status: Int, body: String): IllegalStateException {
+        log.error("OpenSearch {} failed with status {}: {}", operation, status, body)
+        return IllegalStateException("OpenSearch $operation failed with status $status: $body")
+    }
 
     private fun ensureIndex() = ensureIndex(defaultTarget())
 

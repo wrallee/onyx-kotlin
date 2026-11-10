@@ -63,3 +63,9 @@ onyx:
     enabled: ${ONYX_WORKER_ENABLED:false}
     poll-delay-ms: ${ONYX_WORKER_POLL_DELAY_MS:5000}
     heartbeat-interval-ms: ${ONYX_WORKER_HEARTBEAT_INTERVAL_MS:15000}
+
+logging:
+  level:
+    root: INFO
+    com.onyx.kotlin: ${LOG_LEVEL:INFO}
+    org.springframework.web: INFO

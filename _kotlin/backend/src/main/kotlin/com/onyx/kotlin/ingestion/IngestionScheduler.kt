@@ -8,6 +8,7 @@ import com.onyx.kotlin.ingestion.JobState
 import com.onyx.kotlin.connector.PairStatus
 import com.onyx.kotlin.indexing.IndexSettingsService
 import com.onyx.kotlin.indexing.ReindexCoordinator
+import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -23,10 +24,16 @@ class IngestionScheduler(
     private val indexSettings: IndexSettingsService,
     private val reindex: ReindexCoordinator,
 ) {
+    private val log = LoggerFactory.getLogger(IngestionScheduler::class.java)
+
     @Scheduled(fixedDelayString = "\${onyx.scheduler.poll-delay-ms:15000}")
-    @Transactional
     fun schedule() {
-        if (properties.worker.enabled) scheduleDue(Instant.now())
+        if (!properties.worker.enabled) return
+        try {
+            scheduleDue(Instant.now())
+        } catch (error: Exception) {
+            log.error("Failed to run ingestion scheduler: {}", error.message, error)
+        }
     }
 
     @Transactional
@@ -54,8 +61,14 @@ class IngestionScheduler(
                 else -> !lastAttemptAt.plusSeconds(connector.refreshFreq!!).isAfter(now)
             }
             when {
-                pruneDue -> commands.enqueuePair(pairId, fromBeginning = false, pruneOnly = true)
-                refreshDue -> commands.enqueuePair(pairId, fromBeginning = false)
+                pruneDue -> {
+                    log.info("Ingestion scheduler enqueuing pairId={} for prune", pairId)
+                    commands.enqueuePair(pairId, fromBeginning = false, pruneOnly = true)
+                }
+                refreshDue -> {
+                    log.info("Ingestion scheduler enqueuing pairId={} for refresh", pairId)
+                    commands.enqueuePair(pairId, fromBeginning = false)
+                }
             }
         }
     }
