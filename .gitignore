@@ -71,3 +71,9 @@ plans
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 !.claude/settings.json
+# Local Graphify initialization and generated graph
+/AGENTS.override.md
+/.codex/hooks.json
+/.codex/skills/graphify/
+/.graphifyignore
+/graphify-out/
